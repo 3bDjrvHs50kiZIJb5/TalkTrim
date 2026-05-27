@@ -1,0 +1,38 @@
+@page "/"
+@layout LayoutEmpty
+
+<PageTitle>TalkTrim</PageTitle>
+
+<div class="w-full max-w-2xl space-y-8 text-center">
+    <header Class="my-6 gap-2">
+        <div class="flex justify-center">
+            <Avatar Size="AvatarSize.ExtraLarge" Class="size-16 border-2 border-primary rounded-2xl shadow-md">
+                <AvatarImage Source="/_content/NeoAdmin.Blazor/images/logo.png" Alt="TalkTrim" />
+                <AvatarFallback Class="rounded-2xl text-lg font-semibold">TT</AvatarFallback>
+            </Avatar>
+        </div>
+        <div class="space-y-2 mt-4 mb-4">
+            <h1 class="text-3xl font-semibold tracking-tight">TalkTrim</h1>
+            <p class="text-sm text-muted-foreground leading-relaxed">
+                口播视频剪辑后台：识别口播稿、生成双语字幕、去口气加速与成片压制。
+            </p>
+        </div>
+        <div class="flex flex-wrap items-center justify-center gap-2">
+            <LinkButton Variant="ButtonVariant.Outline" Href="/api/index.html" Target="_blank">
+                API 文档
+            </LinkButton>
+            <LinkButton Variant="ButtonVariant.Outline" Href="/login?Redirect=%2FAdmin">
+                <LucideIcon Name="layout-dashboard" Size="16" Class="mr-1.5" />
+                进入后台
+            </LinkButton>
+        </div>
+    </header>
+
+    <footer class="pt-4 text-xs text-muted-foreground mt-4">
+        <p>© @CopyrightYear TalkTrim</p>
+    </footer>
+</div>
+
+@code {
+    private static int CopyrightYear => DateTime.Now.Year;
+}

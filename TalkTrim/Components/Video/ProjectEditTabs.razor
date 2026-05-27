@@ -1,0 +1,769 @@
+@namespace TalkTrim.Components.Video
+@using System.Globalization
+@using TalkTrim.Entities.Video
+@using TalkTrim.Services
+@using NeoAdmin.Blazor.Extensions
+@using NeoAdmin.Blazor.Services
+
+<Tabs @key="Item.Id" Value="@_activeTab" ValueChanged="OnTabChangedAsync" Class="w-full">
+    <TabsList Class="flex flex-wrap gap-1">
+        <TabsTrigger Value="basic">基本信息</TabsTrigger>
+        <TabsTrigger Value="script">口播稿</TabsTrigger>
+        <TabsTrigger Value="subtitles">字幕</TabsTrigger>
+        <TabsTrigger Value="media">媒体素材</TabsTrigger>
+        <TabsTrigger Value="encode">视频压制</TabsTrigger>
+    </TabsList>
+
+    <TabsContent Value="basic" Class="mt-4 space-y-4">
+        <div class="grid gap-4 sm:grid-cols-2">
+            <div class="space-y-2">
+                <Label For="project-name">项目名称</Label>
+                <Input id="project-name" Class="w-full" MaxLength="100" @bind-Value="Item.ProjectName" />
+            </div>
+            <div class="space-y-2">
+                <Label For="project-code">编码</Label>
+                <Input id="project-code" Class="w-full" MaxLength="50" @bind-Value="Item.ProjectCode" />
+            </div>
+        </div>
+        <div class="space-y-2">
+            <Label For="project-description">视频简介</Label>
+            <Textarea Id="project-description" Class="min-h-24 w-full" MaxLength="2000"
+                      Placeholder="发布到平台的视频简介文案"
+                      @bind-Value="Item.Description" />
+        </div>
+        <div class="space-y-2">
+            <Label For="project-remark">备注</Label>
+            <Textarea Id="project-remark" Class="min-h-16 w-full" MaxLength="500"
+                      @bind-Value="Item.Remark" />
+        </div>
+        <div class="space-y-2">
+            <Label For="project-keywords">关键词列表</Label>
+            <Input id="project-keywords" Class="w-full" MaxLength="500" @bind-Value="Item.Keywords"
+                   Placeholder="多个关键词用英文逗号分隔" />
+            <p class="text-xs text-muted-foreground">多个关键词用逗号分隔保存。</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <Checkbox @bind-Checked="Item.Status" Id="project-status" />
+            <Label for="project-status">是否有效</Label>
+        </div>
+    </TabsContent>
+
+    <TabsContent Value="script" Class="mt-4 space-y-4">
+        <VideoFileUrlField VideoFileUrl="@Item.VideoFileUrl"
+                           VideoFileUrlChanged="OnVideoFileUrlChangedAsync" />
+        <div class="space-y-2">
+            <Label For="project-wav-url">WAV 音频 URL</Label>
+            <Input id="project-wav-url" Class="w-full" MaxLength="500" ReadOnly="true"
+                   Placeholder="识别口播稿时从视频提取并上传 OSS 后自动填入"
+                   @bind-Value="Item.WavUrl" />
+        </div>
+        @if (_isTranscribing)
+        {
+            <Alert Variant="AlertVariant.Default">
+                <LucideIcon Name="loader-circle" Size="16" Class="animate-spin" />
+                <AlertTitle>正在识别口播稿</AlertTitle>
+                <AlertDescription Class="space-y-2">
+                    <p>@(_transcribeStatus ?? "请稍候，阿里云 Paraformer 正在转写音频…")</p>
+                    @if (_transcribePercent > 0)
+                    {
+                        <div class="flex items-center gap-2">
+                            <Progress Value="@_transcribePercent" Max="100" Class="flex-1" />
+                            <span class="shrink-0 text-xs tabular-nums text-muted-foreground">@_transcribePercent%</span>
+                        </div>
+                    }
+                </AlertDescription>
+            </Alert>
+        }
+        <div class="flex flex-wrap items-center gap-2">
+            <Button Type="ButtonType.Button"
+                    Variant="ButtonVariant.Outline"
+                    Size="ButtonSize.Small"
+                    Disabled="@(!CanTranscribe)"
+                    Title="@GetTranscribeButtonTitle()"
+                    OnClick="StartTranscribeAsync">
+                从视频识别口播稿
+            </Button>
+            <p class="text-xs text-muted-foreground">
+                提交后在后台识别并自动保存；可关闭本窗口，再次打开仍会显示进度。
+                若上方已有 WAV 音频 URL 则直接用于识别，否则从视频提取音频。
+                @if (Item.Id <= 0 && HasTranscribeSource)
+                {
+                    <span class="text-amber-600 dark:text-amber-500">新建项目请先点「保存」后再识别。</span>
+                }
+            </p>
+        </div>
+        <div class="space-y-2">
+            <Label For="project-script">口播稿内容</Label>
+            <Textarea Id="project-script" Rows="32"
+                      Class="field-sizing-fixed min-h-72 w-full max-h-[calc(85vh-8rem)] resize-y"
+                      @bind-Value="Item.ScriptContent" />
+        </div>
+    </TabsContent>
+
+    <TabsContent Value="subtitles" Class="mt-4">
+        <p class="mb-3 text-xs text-muted-foreground">
+            自动识别后会填入英文 SRT 与中文 SRT；压制时也可使用双语合并格式（识别结果已同步到中英文字幕字段）。
+        </p>
+        <ResizablePanelGroup Direction="ResizableDirection.Horizontal"
+                             Class="h-[min(42rem,calc(85vh-8rem))] min-h-[28rem] w-full rounded-lg border"
+                             DefaultSizes="@(new double[] { 50, 50 })">
+            <ResizablePanel MinSize="20" Class="flex min-h-0 min-w-0 flex-col overflow-hidden">
+                <div class="flex h-full min-h-0 flex-col gap-2 p-3">
+                    <Label For="project-chinese-subtitles">中文字幕（SRT）</Label>
+                    <Textarea Id="project-chinese-subtitles" Rows="28"
+                              Class="field-sizing-fixed min-h-96 flex-1 w-full resize-none"
+                              @bind-Value="Item.ChineseSubtitles" />
+                </div>
+            </ResizablePanel>
+            <ResizableHandle WithHandle="true" />
+            <ResizablePanel MinSize="20" Class="flex min-h-0 min-w-0 flex-col overflow-hidden">
+                <div class="flex h-full min-h-0 flex-col gap-2 p-3">
+                    <Label For="project-english-subtitles">英文字幕（SRT）</Label>
+                    <Textarea Id="project-english-subtitles" Rows="28"
+                              Class="field-sizing-fixed min-h-96 flex-1 w-full resize-none"
+                              @bind-Value="Item.EnglishSubtitles" />
+                </div>
+            </ResizablePanel>
+        </ResizablePanelGroup>
+    </TabsContent>
+
+    <TabsContent Value="media" Class="mt-4 space-y-4">
+        <ThumbnailUrlField @bind-ThumbnailUrl="Item.ThumbnailUrl" />
+        <OutroVideoUrlField @bind-OutroVideoUrl="Item.OutroVideoUrl" />
+    </TabsContent>
+
+    <TabsContent Value="encode" Class="mt-4 space-y-4">
+        <div class="grid gap-4 sm:grid-cols-2 max-w-2xl">
+            <div class="space-y-2">
+                <Label For="project-speed">视频加速倍数</Label>
+                <Input Id="project-speed" Type="InputType.Text" InputMode="InputMode.Decimal" Class="w-full"
+                       Placeholder="1.25" Value="@GetSpeedText()"
+                       ValueChanged="@(v => SetSpeedText(v))" @onblur="ApplySpeed" />
+                <p class="text-xs text-muted-foreground">默认 1.25；1.0 表示不加速。压制时音频会用 atempo 保持音调，避免变尖。</p>
+            </div>
+            <div class="space-y-2">
+                <Label For="project-breath-trim">去口气（秒）</Label>
+                <Input Id="project-breath-trim" Type="InputType.Text" InputMode="InputMode.Decimal" Class="w-full"
+                       Placeholder="1" Value="@GetBreathTrimText()"
+                       ValueChanged="@(v => SetBreathTrimText(v))" @onblur="ApplyBreathTrim" />
+                <p class="text-xs text-muted-foreground">
+                    句间停顿超过该秒数时裁切至该秒数；填 0 表示不去口气。
+                </p>
+            </div>
+        </div>
+        <div class="grid gap-4 sm:grid-cols-4 w-full">
+            <div class="space-y-2">
+                <Label For="project-subtitle-font">中文字幕字体</Label>
+                <Select TValue="string" Class="w-full" @bind-Value="Item.SubtitleFontName">
+                    <SelectTrigger id="project-subtitle-font">
+                        <SelectValue Placeholder="选择字体" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        @foreach (var font in SubtitleFontOptions.Items)
+                        {
+                            <SelectItem Value="@font.Value" TValue="string">@font.Label</SelectItem>
+                        }
+                    </SelectContent>
+                </Select>
+            </div>
+            <div class="space-y-2">
+                <Label For="project-subtitle-font-size">中文字幕字号</Label>
+                <Input Id="project-subtitle-font-size" Type="InputType.Number" Class="w-full"
+                       Min="8" Max="200" Step="1"
+                       Value="@Item.SubtitleFontSize.ToString(CultureInfo.InvariantCulture)"
+                       ValueChanged="@(v => SetSubtitleFontSize(v))" />
+            </div>
+            <div class="space-y-2">
+                <Label For="project-subtitle-font-color">中文字幕字体颜色</Label>
+                <div class="flex items-center gap-2">
+                    <input type="color" id="project-subtitle-font-color-picker"
+                           class="h-10 w-14 shrink-0 cursor-pointer rounded-md border border-input bg-background p-1"
+                           value="@GetColorPickerValue(Item.SubtitleFontColor)"
+                           @onchange="@(e => OnSubtitleFontColorPicked(e))" />
+                    <Input Id="project-subtitle-font-color" Class="min-w-0 flex-1" MaxLength="20"
+                           Placeholder="#FFFFFF" @bind-Value="Item.SubtitleFontColor" />
+                </div>
+            </div>
+            <div class="space-y-2">
+                <Label For="project-subtitle-bg-color">中文字幕背景色</Label>
+                <div class="flex items-center gap-2">
+                    <input type="color" id="project-subtitle-bg-color-picker"
+                           class="h-10 w-14 shrink-0 cursor-pointer rounded-md border border-input bg-background p-1"
+                           value="@GetColorPickerValue(Item.SubtitleBackgroundColor)"
+                           @onchange="@(e => OnSubtitleBackgroundColorPicked(e))" />
+                    <Input Id="project-subtitle-bg-color" Class="min-w-0 flex-1" MaxLength="20"
+                           Placeholder="#000000" @bind-Value="Item.SubtitleBackgroundColor" />
+                </div>
+            </div>
+            <div class="space-y-2">
+                <Label For="project-en-subtitle-font">英文字幕字体</Label>
+                <Select TValue="string" Class="w-full" @bind-Value="Item.EnglishSubtitleFontName">
+                    <SelectTrigger id="project-en-subtitle-font">
+                        <SelectValue Placeholder="选择字体" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        @foreach (var font in SubtitleFontOptions.Items)
+                        {
+                            <SelectItem Value="@font.Value" TValue="string">@font.Label</SelectItem>
+                        }
+                    </SelectContent>
+                </Select>
+            </div>
+            <div class="space-y-2">
+                <Label For="project-en-subtitle-font-size">英文字幕字号</Label>
+                <Input Id="project-en-subtitle-font-size" Type="InputType.Number" Class="w-full"
+                       Min="8" Max="200" Step="1"
+                       Value="@Item.EnglishSubtitleFontSize.ToString(CultureInfo.InvariantCulture)"
+                       ValueChanged="@(v => SetEnglishSubtitleFontSize(v))" />
+            </div>
+            <div class="space-y-2">
+                <Label For="project-en-subtitle-font-color">英文字幕字体颜色</Label>
+                <div class="flex items-center gap-2">
+                    <input type="color" id="project-en-subtitle-font-color-picker"
+                           class="h-10 w-14 shrink-0 cursor-pointer rounded-md border border-input bg-background p-1"
+                           value="@GetColorPickerValue(Item.EnglishSubtitleFontColor)"
+                           @onchange="@(e => OnEnglishSubtitleFontColorPicked(e))" />
+                    <Input Id="project-en-subtitle-font-color" Class="min-w-0 flex-1" MaxLength="20"
+                           Placeholder="#FFFFFF" @bind-Value="Item.EnglishSubtitleFontColor" />
+                </div>
+            </div>
+            <div class="space-y-2">
+                <Label For="project-en-subtitle-bg-color">英文字幕背景色</Label>
+                <div class="flex items-center gap-2">
+                    <input type="color" id="project-en-subtitle-bg-color-picker"
+                           class="h-10 w-14 shrink-0 cursor-pointer rounded-md border border-input bg-background p-1"
+                           value="@GetColorPickerValue(Item.EnglishSubtitleBackgroundColor)"
+                           @onchange="@(e => OnEnglishSubtitleBackgroundColorPicked(e))" />
+                    <Input Id="project-en-subtitle-bg-color" Class="min-w-0 flex-1" MaxLength="20"
+                           Placeholder="#000000" @bind-Value="Item.EnglishSubtitleBackgroundColor" />
+                </div>
+            </div>
+            <div class="space-y-2 sm:col-span-2">
+                <div class="flex items-center justify-between text-sm">
+                    <Label>字幕背景透明度</Label>
+                    <span class="text-muted-foreground">@Item.SubtitleBackgroundOpacity%</span>
+                </div>
+                <Slider Value="@Item.SubtitleBackgroundOpacity"
+                        ValueChanged="@(v => Item.SubtitleBackgroundOpacity = (int)Math.Round(v))"
+                        Min="0" Max="100" Step="1" />
+                <p class="text-xs text-muted-foreground">0 为全透明，100 为不透明；中英字幕背景共用此透明度。</p>
+            </div>
+        </div>
+        @if (_isEncoding)
+        {
+            <Alert Variant="AlertVariant.Default">
+                <LucideIcon Name="loader-circle" Size="16" Class="animate-spin" />
+                <AlertTitle>正在压制视频</AlertTitle>
+                <AlertDescription Class="space-y-2">
+                    <p>@(_encodeStatus ?? "请稍候，ffmpeg 正在合成成片…")</p>
+                    @if (_encodePercent > 0)
+                    {
+                        <div class="flex items-center gap-2">
+                            <Progress Value="@_encodePercent" Max="100" Class="flex-1" />
+                            <span class="shrink-0 text-xs tabular-nums text-muted-foreground">@_encodePercent%</span>
+                        </div>
+                    }
+                </AlertDescription>
+            </Alert>
+        }
+        <div class="flex flex-wrap items-center gap-2">
+            <Button Type="ButtonType.Button"
+                    Variant="ButtonVariant.Default"
+                    Size="ButtonSize.Small"
+                    Disabled="@(!CanEncode)"
+                    OnClick="StartEncodeAsync">
+                开始压制
+            </Button>
+            <p class="text-xs text-muted-foreground">
+                提交后在后台压制并自动保存成片地址；可关闭本窗口，再次打开仍会显示进度。
+            </p>
+        </div>
+        <FinishedVideoUrlField @bind-FinishedVideoUrl="Item.FinishedVideoUrl" />
+    </TabsContent>
+</Tabs>
+
+@implements IAsyncDisposable
+
+@code {
+    [Parameter, EditorRequired]
+    public VideoProject Item { get; set; } = default!;
+
+    [Inject]
+    private ProjectJobService ProjectJobService { get; set; } = default!;
+
+    [Inject]
+    private VideoEncodeService VideoEncodeService { get; set; } = default!;
+
+    [Inject]
+    private IToastService ToastService { get; set; } = default!;
+
+    [Inject]
+    private NavigationManager NavigationManager { get; set; } = default!;
+
+    private string _activeTab = "basic";
+    private string _speedText = string.Empty;
+    private string _breathTrimText = string.Empty;
+    private bool _isTranscribing;
+    private string? _transcribeStatus;
+    private int _transcribePercent;
+    private bool _isEncoding;
+    private string? _encodeStatus;
+    private int _encodePercent;
+    private long _lastNotifiedTranscribeJobId;
+    private long _lastNotifiedEncodeJobId;
+    private PeriodicTimer? _pollTimer;
+    private CancellationTokenSource? _pollCts;
+    private Task? _pollLoopTask;
+
+    private bool HasActiveJob => _isTranscribing || _isEncoding;
+
+    private bool HasTranscribeSource =>
+        !string.IsNullOrWhiteSpace(Item.WavUrl) || !string.IsNullOrWhiteSpace(Item.VideoFileUrl);
+
+    /// <summary>有素材且未在跑任务时可点；是否已保存由 <see cref="StartTranscribeAsync"/> 校验。</summary>
+    private bool CanTranscribe => !HasActiveJob && HasTranscribeSource;
+
+    private bool CanEncode =>
+        !HasActiveJob && !string.IsNullOrWhiteSpace(Item.VideoFileUrl);
+
+    private string? GetTranscribeButtonTitle()
+    {
+        if (HasActiveJob)
+        {
+            return "后台任务进行中";
+        }
+
+        if (!HasTranscribeSource)
+        {
+            return "请先上传或填写视频素材";
+        }
+
+        if (Item.Id <= 0)
+        {
+            return "请先保存项目";
+        }
+
+        return null;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshFromDatabaseAsync();
+        await InitializeTerminalJobTrackingAsync();
+        if (HasActiveJob)
+        {
+            EnsurePolling();
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        _speedText = Item.SpeedMultiplier.ToString(CultureInfo.InvariantCulture);
+        _breathTrimText = Item.BreathTrimSeconds.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private void OnTabChangedAsync(string tab)
+    {
+        _activeTab = tab;
+    }
+
+    private async Task OnVideoFileUrlChangedAsync(string url)
+    {
+        Item.VideoFileUrl = url;
+        if (!string.IsNullOrWhiteSpace(url))
+        {
+            Item.WavUrl = string.Empty;
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task StartTranscribeAsync()
+    {
+        if (HasActiveJob)
+        {
+            return;
+        }
+
+        if (Item.Id <= 0)
+        {
+            ToastService.Warning("无法识别", "请先保存项目后再提交识别任务。");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Item.WavUrl) && string.IsNullOrWhiteSpace(Item.VideoFileUrl))
+        {
+            ToastService.Warning("无法识别", "请先填写或上传视频素材 URL。");
+            return;
+        }
+
+        try
+        {
+            await ProjectJobService.EnqueueTranscribeAsync(Item, NavigationManager.BaseUri);
+            ToastService.Success("已提交", "口播稿识别已在后台运行，可关闭窗口。");
+            await RefreshFromDatabaseAsync();
+            EnsurePolling();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Error("提交识别任务失败", ex.Message);
+        }
+    }
+
+    private string GetSpeedText() => _speedText;
+
+    private void SetSpeedText(string? value) => _speedText = value ?? string.Empty;
+
+    private void ApplySpeed()
+    {
+        if (decimal.TryParse(_speedText, NumberStyles.Number, CultureInfo.InvariantCulture, out var n))
+        {
+            Item.SpeedMultiplier = n;
+        }
+
+        _speedText = Item.SpeedMultiplier.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private string GetBreathTrimText() => _breathTrimText;
+
+    private void SetBreathTrimText(string? value) => _breathTrimText = value ?? string.Empty;
+
+    private void ApplyBreathTrim()
+    {
+        if (decimal.TryParse(_breathTrimText, NumberStyles.Number, CultureInfo.InvariantCulture, out var n)
+            && n >= 0)
+        {
+            Item.BreathTrimSeconds = n;
+        }
+
+        _breathTrimText = Item.BreathTrimSeconds.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static string GetColorPickerValue(string? hex)
+    {
+        if (string.IsNullOrWhiteSpace(hex))
+        {
+            return "#000000";
+        }
+
+        var value = hex.Trim();
+        if (!value.StartsWith('#'))
+        {
+            value = "#" + value;
+        }
+
+        return value.Length == 7 ? value : "#000000";
+    }
+
+    private void OnSubtitleFontColorPicked(ChangeEventArgs e)
+    {
+        var picked = e.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(picked))
+        {
+            Item.SubtitleFontColor = picked;
+        }
+    }
+
+    private void OnSubtitleBackgroundColorPicked(ChangeEventArgs e)
+    {
+        var picked = e.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(picked))
+        {
+            Item.SubtitleBackgroundColor = picked;
+        }
+    }
+
+    private void OnEnglishSubtitleFontColorPicked(ChangeEventArgs e)
+    {
+        var picked = e.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(picked))
+        {
+            Item.EnglishSubtitleFontColor = picked;
+        }
+    }
+
+    private void OnEnglishSubtitleBackgroundColorPicked(ChangeEventArgs e)
+    {
+        var picked = e.Value?.ToString();
+        if (!string.IsNullOrWhiteSpace(picked))
+        {
+            Item.EnglishSubtitleBackgroundColor = picked;
+        }
+    }
+
+    private void SetSubtitleFontSize(string? value)
+    {
+        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var size))
+        {
+            Item.SubtitleFontSize = Math.Clamp(size, 8, 200);
+        }
+    }
+
+    private void SetEnglishSubtitleFontSize(string? value)
+    {
+        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var size))
+        {
+            Item.EnglishSubtitleFontSize = Math.Clamp(size, 8, 200);
+        }
+    }
+
+    private async Task StartEncodeAsync()
+    {
+        if (HasActiveJob)
+        {
+            return;
+        }
+
+        if (Item.Id <= 0)
+        {
+            ToastService.Warning("无法压制", "请先保存项目后再提交压制任务。");
+            return;
+        }
+
+        ApplySpeed();
+        ApplyBreathTrim();
+
+        if (string.IsNullOrWhiteSpace(Item.VideoFileUrl))
+        {
+            ToastService.Warning("无法压制", "请先填写或上传视频素材 URL。");
+            return;
+        }
+
+        var validationErrors = VideoEncodeService.GetEncodeValidationErrors(Item, NavigationManager.BaseUri);
+        if (validationErrors.Count > 0)
+        {
+            ToastService.Warning("无法压制", string.Join(' ', validationErrors));
+            return;
+        }
+
+        try
+        {
+            await ProjectJobService.EnqueueEncodeAsync(Item, NavigationManager.BaseUri);
+            ToastService.Success("已提交", "视频压制已在后台运行，可关闭窗口。");
+            await RefreshFromDatabaseAsync();
+            EnsurePolling();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Error("提交压制任务失败", ex.Message);
+        }
+    }
+
+    private async Task RefreshFromDatabaseAsync(bool applyJobResults = true)
+    {
+        if (Item.Id <= 0)
+        {
+            _isTranscribing = false;
+            _isEncoding = false;
+            _transcribeStatus = null;
+            _transcribePercent = 0;
+            _encodeStatus = null;
+            _encodePercent = 0;
+            return;
+        }
+
+        if (applyJobResults)
+        {
+            await ApplyJobResultsFromDatabaseAsync();
+        }
+
+        await RefreshJobStatusAsync();
+    }
+
+    private async Task ApplyJobResultsFromDatabaseAsync()
+    {
+        if (Item.Id <= 0)
+        {
+            return;
+        }
+
+        var fresh = await ProjectJobService.GetProjectAsync(Item.Id);
+        if (fresh is not null)
+        {
+            ProjectJobService.ApplyJobResultsFromDatabase(fresh, Item);
+        }
+    }
+
+    private async Task RefreshJobStatusAsync()
+    {
+        if (Item.Id <= 0)
+        {
+            _isTranscribing = false;
+            _isEncoding = false;
+            _transcribeStatus = null;
+            _transcribePercent = 0;
+            _encodeStatus = null;
+            _encodePercent = 0;
+            return;
+        }
+
+        var activeJobs = await ProjectJobService.GetActiveJobsAsync(Item.Id);
+        var transcribeJob = activeJobs.FirstOrDefault(j => j.JobType == ProjectJobType.Transcribe);
+        var encodeJob = activeJobs.FirstOrDefault(j => j.JobType == ProjectJobType.Encode);
+
+        _isTranscribing = transcribeJob is not null;
+        _transcribeStatus = transcribeJob?.ProgressMessage;
+        _transcribePercent = transcribeJob?.ProgressPercent ?? 0;
+        _isEncoding = encodeJob is not null;
+        _encodeStatus = encodeJob?.ProgressMessage;
+        _encodePercent = encodeJob?.ProgressPercent ?? 0;
+    }
+
+    private async Task InitializeTerminalJobTrackingAsync()
+    {
+        var transcribe = await ProjectJobService.GetLatestJobAsync(Item.Id, ProjectJobType.Transcribe);
+        var encode = await ProjectJobService.GetLatestJobAsync(Item.Id, ProjectJobType.Encode);
+        _lastNotifiedTranscribeJobId = GetTerminalJobId(transcribe);
+        _lastNotifiedEncodeJobId = GetTerminalJobId(encode);
+    }
+
+    private static long GetTerminalJobId(ProjectJob? job)
+    {
+        if (job is null)
+        {
+            return 0;
+        }
+
+        return job.Status is ProjectJobStatus.Succeeded or ProjectJobStatus.Failed ? job.Id : 0;
+    }
+
+    private void EnsurePolling()
+    {
+        if (Item.Id <= 0)
+        {
+            return;
+        }
+
+        if (_pollLoopTask is { IsCompleted: false })
+        {
+            return;
+        }
+
+        StopPolling();
+        _pollCts = new CancellationTokenSource();
+        _pollTimer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+        _pollLoopTask = RunPollLoopAsync(_pollCts.Token);
+    }
+
+    private void StopPolling()
+    {
+        if (_pollCts is null)
+        {
+            return;
+        }
+
+        _pollCts.Cancel();
+        _pollCts.Dispose();
+        _pollCts = null;
+        _pollTimer?.Dispose();
+        _pollTimer = null;
+        _pollLoopTask = null;
+    }
+
+    private async Task RunPollLoopAsync(CancellationToken cancellationToken)
+    {
+        if (_pollTimer is null)
+        {
+            return;
+        }
+
+        try
+        {
+            while (await _pollTimer.WaitForNextTickAsync(cancellationToken))
+            {
+                await PollJobStateAsync();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 组件销毁时停止轮询
+        }
+    }
+
+    private async Task PollJobStateAsync()
+    {
+        if (Item.Id <= 0)
+        {
+            return;
+        }
+
+        var wasActive = HasActiveJob;
+        await RefreshJobStatusAsync();
+
+        var needsRender = false;
+        if (HasActiveJob)
+        {
+            await ApplyJobResultsFromDatabaseAsync();
+            needsRender = true;
+        }
+        else
+        {
+            await CheckTerminalJobsAsync();
+            if (wasActive)
+            {
+                needsRender = true;
+            }
+
+            StopPolling();
+        }
+
+        if (needsRender)
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task CheckTerminalJobsAsync()
+    {
+        var transcribe = await ProjectJobService.GetLatestJobAsync(Item.Id, ProjectJobType.Transcribe);
+        if (transcribe is not null
+            && transcribe.Id > _lastNotifiedTranscribeJobId
+            && transcribe.Status is ProjectJobStatus.Succeeded or ProjectJobStatus.Failed)
+        {
+            _lastNotifiedTranscribeJobId = transcribe.Id;
+            if (transcribe.Status == ProjectJobStatus.Succeeded)
+            {
+                await RefreshFromDatabaseAsync();
+                ToastService.Success("识别完成", transcribe.ProgressMessage);
+            }
+            else
+            {
+                ToastService.Error("视频识别失败", transcribe.ErrorMessage);
+            }
+        }
+
+        var encode = await ProjectJobService.GetLatestJobAsync(Item.Id, ProjectJobType.Encode);
+        if (encode is not null
+            && encode.Id > _lastNotifiedEncodeJobId
+            && encode.Status is ProjectJobStatus.Succeeded or ProjectJobStatus.Failed)
+        {
+            _lastNotifiedEncodeJobId = encode.Id;
+            if (encode.Status == ProjectJobStatus.Succeeded)
+            {
+                await RefreshFromDatabaseAsync();
+                ToastService.Success("压制完成", encode.ProgressMessage);
+            }
+            else
+            {
+                ToastService.Error("视频压制失败", encode.ErrorMessage);
+            }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        var pollTask = _pollLoopTask;
+        StopPolling();
+
+        if (pollTask is not null)
+        {
+            try
+            {
+                await pollTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+    }
+}

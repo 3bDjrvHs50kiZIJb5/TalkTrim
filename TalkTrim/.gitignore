@@ -1,0 +1,22 @@
+# 依赖与构建产物
+node_modules/
+bin/
+obj/
+
+# 日志与本地数据
+Logs/
+*.log
+neoadmin.db
+neoadmin.db-*
+
+# 本地上传
+wwwroot/uploads/
+
+# 含密钥的本地/生产覆盖配置（请复制 *.example.json 后填写）
+appsettings.Development.json
+appsettings.Production.json
+
+# IDE
+.vs/
+*.user
+*.suo

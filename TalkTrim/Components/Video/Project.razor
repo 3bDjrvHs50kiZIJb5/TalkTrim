@@ -1,0 +1,409 @@
+@page "/Video/Project"
+@namespace TalkTrim.Components.Video
+@layout LayoutAdmin
+@using Microsoft.JSInterop
+@using NeoAdmin.Blazor.Components
+@using NeoAdmin.Blazor.Extensions
+@implements IAsyncDisposable
+@inject IFreeSql FreeSql
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavigationManager
+@inject ProjectJobService ProjectJobService
+@inject CurrentUserRoleService CurrentUserRoleService
+@inject IToastService ToastService
+
+<PageTitle>视频项目</PageTitle>
+
+<div class="flex flex-col flex-1 min-h-0">
+    <CrudTable @ref="table" TItem="VideoProject" Title="视频项目" PageSize="50" IsMultiSelect="false" IsSingleSelect="false"
+        SearchPlaceholder="项目名称 / 编码 / 简介 / 关键词 / 备注.." InitQuery="InitQuery" OnQuery="HandleQuery"
+        OnSaveAsync="HandleSaveAsync"
+        DialogContentSize="CrudDialogContentSize.X7l">
+        <ToolbarTrailingContent>
+            <Button Type="ButtonType.Button"
+                    Variant="ButtonVariant.Link"
+                    Size="ButtonSize.Small"
+                    Title="查看进行中的口播稿识别与视频压制任务"
+                    OnClick="OpenActiveJobsDialogAsync">
+                <LucideIcon Name="loader-circle" Size="16" Class="@(_activeJobCount > 0 ? "animate-spin" : "")" />
+                <span>后台任务@ActiveJobCountLabel</span>
+            </Button>
+        </ToolbarTrailingContent>
+        <Columns>
+            <DataTableColumn TData="CrudGridRow<VideoProject>" TValue="long" Property="@(row => row.Item.Id)"
+                Header="ID" Sortable="false" Width="180px" />
+            <DataTableColumn TData="CrudGridRow<VideoProject>" TValue="string" Property="@(row => row.Item.ProjectName)"
+                Header="项目名称" Sortable="false" />
+            <DataTableColumn TData="CrudGridRow<VideoProject>" TValue="string" Property="@(row => row.Item.ProjectCode)"
+                Header="编码" Sortable="false" Width="120px" />
+            @if (_isAdministrator)
+            {
+                <DataTableColumn TData="CrudGridRow<VideoProject>" TValue="string" Property="@(_ => string.Empty)"
+                    Header="所属用户" Sortable="false" Width="120px">
+                    <CellTemplate Context="row">
+                        @GetOwnerDisplayName(row.Item)
+                    </CellTemplate>
+                </DataTableColumn>
+            }
+            <DataTableColumn TData="CrudGridRow<VideoProject>" TValue="string" Property="@(row => row.Item.Keywords)"
+                Header="关键词" Sortable="false">
+                <CellTemplate Context="row">
+                    <span class="block truncate" title="@row.Item.Keywords">@row.Item.Keywords</span>
+                </CellTemplate>
+            </DataTableColumn>
+            <DataTableColumn TData="CrudGridRow<VideoProject>" TValue="decimal"
+                Property="@(row => row.Item.SpeedMultiplier)" Header="加速倍数" Sortable="false" Width="96px" />
+            <DataTableColumn TData="CrudGridRow<VideoProject>" TValue="bool" Property="@(row => row.Item.Status)"
+                Header="有效" Sortable="false" Width="72px">
+                <CellTemplate Context="row">
+                    @(row.Item.Status ? "是" : "否")
+                </CellTemplate>
+            </DataTableColumn>
+            <DataTableColumn TData="CrudGridRow<VideoProject>" TValue="string" Property="@(_ => string.Empty)"
+                Header="修改时间" Sortable="false" Width="160px">
+                <CellTemplate Context="row">
+                    @(row.Item.ModifiedTime?.ToString("yyyy-MM-dd HH:mm:ss")
+                                        ?? row.Item.CreatedTime?.ToString("yyyy-MM-dd HH:mm:ss")
+                                        ?? "-")
+                </CellTemplate>
+            </DataTableColumn>
+        </Columns>
+        <RowActionsContent Context="row">
+            @if (HasFinishedVideoUrl(row.Item))
+            {
+                <LinkButton Variant="ButtonVariant.Ghost"
+                            Size="ButtonSize.Small"
+                            Href="@GetFinishedVideoDownloadUrl(row.Item)"
+                            Target="_blank"
+                            Title="下载成片">
+                    <LucideIcon Name="download" Size="16" />
+                    <span class="sr-only">下载</span>
+                </LinkButton>
+            }
+            else
+            {
+                <Button Variant="ButtonVariant.Ghost"
+                        Size="ButtonSize.Small"
+                        Title="下载成片"
+                        Disabled="true">
+                    <LucideIcon Name="download" Size="16" />
+                    <span class="sr-only">下载</span>
+                </Button>
+            }
+        </RowActionsContent>
+        <EditTemplate Context="item">
+            <ProjectEditTabs Item="item" />
+        </EditTemplate>
+    </CrudTable>
+</div>
+
+<Dialog @bind-Open="_activeJobsDialogOpen">
+    <DialogContent Class="sm:max-w-xl">
+        <DialogHeader>
+            <DialogTitle>进行中的后台任务</DialogTitle>
+            <DialogDescription>口播稿识别与视频压制；关闭页面后任务仍会继续并自动保存。</DialogDescription>
+        </DialogHeader>
+        <div class="max-h-[min(24rem,60vh)] space-y-3 overflow-y-auto py-1">
+            @if (_activeJobs.Count == 0)
+            {
+                <p class="text-sm text-muted-foreground">当前没有进行中的任务。</p>
+            }
+            else
+            {
+                @foreach (var row in _activeJobs)
+                {
+                    <div class="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+                        <div class="flex flex-wrap items-start justify-between gap-2">
+                            <div class="min-w-0">
+                                <p class="font-medium truncate" title="@row.ProjectName">@row.ProjectName</p>
+                                @if (!string.IsNullOrWhiteSpace(row.ProjectCode))
+                                {
+                                    <p class="text-xs text-muted-foreground">@row.ProjectCode</p>
+                                }
+                            </div>
+                            <span class="shrink-0 rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                                @GetJobTypeLabel(row.Job.JobType)
+                            </span>
+                        </div>
+                        <p class="text-xs text-muted-foreground">
+                            @GetJobStatusLabel(row.Job.Status)
+                            @if (row.Job.StartedAt.HasValue)
+                            {
+                                <span> · 开始于 @row.Job.StartedAt.Value.ToString("HH:mm:ss")</span>
+                            }
+                        </p>
+                        <div class="space-y-2">
+                            <p class="text-sm flex items-start gap-2">
+                                <LucideIcon Name="loader-circle" Size="14" Class="mt-0.5 shrink-0 animate-spin" />
+                                <span>@(string.IsNullOrWhiteSpace(row.Job.ProgressMessage) ? "处理中…" : row.Job.ProgressMessage)</span>
+                            </p>
+                            @if (row.Job.ProgressPercent > 0)
+                            {
+                                <div class="flex items-center gap-2 pl-6">
+                                    <Progress Value="@row.Job.ProgressPercent" Max="100" Class="flex-1" />
+                                    <span class="shrink-0 text-xs tabular-nums text-muted-foreground">@row.Job.ProgressPercent%</span>
+                                </div>
+                            }
+                        </div>
+                        <Button Type="ButtonType.Button"
+                                Variant="ButtonVariant.Outline"
+                                Size="ButtonSize.Small"
+                                OnClick="@(() => OpenProjectFromJobAsync(row))">
+                            打开项目
+                        </Button>
+                    </div>
+                }
+            }
+        </div>
+        <DialogFooter Class="mt-4 gap-2 sm:gap-0">
+            <Button Type="ButtonType.Button"
+                    Variant="ButtonVariant.Outline"
+                    OnClick="RefreshActiveJobsAsync">
+                <LucideIcon Name="refresh-cw" Size="16" />
+                刷新
+            </Button>
+            <Button Type="ButtonType.Button"
+                    Variant="ButtonVariant.Outline"
+                    OnClick="CloseActiveJobsDialog">
+                关闭
+            </Button>
+        </DialogFooter>
+    </DialogContent>
+</Dialog>
+
+@code {
+    private CrudTable<VideoProject> table = default!;
+    private bool _activeJobsDialogOpen;
+    private List<ActiveProjectJobRow> _activeJobs = [];
+    private int _activeJobCount;
+    private long? _currentUserId;
+    private bool _isAdministrator;
+    private PeriodicTimer? _pollTimer;
+    private CancellationTokenSource? _pollCts;
+    private Task? _pollLoopTask;
+
+    private string ActiveJobCountLabel => _activeJobCount > 0 ? $" ({_activeJobCount})" : string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshCurrentUserScopeAsync();
+        await RefreshActiveJobCountAsync();
+        StartPolling();
+    }
+
+    private long? ActiveJobsUserFilter => _isAdministrator ? null : _currentUserId;
+
+    private Task InitQuery(CrudQueryInfo e)
+    {
+        e.Filters = [];
+        return Task.CompletedTask;
+    }
+
+    private async Task HandleQuery(CrudQueryEventArgs<VideoProject> e)
+    {
+        if (!_currentUserId.HasValue)
+        {
+            await RefreshCurrentUserScopeAsync();
+        }
+
+        var query = e.Select!;
+        if (!_currentUserId.HasValue)
+        {
+            query = query.Where(_ => false);
+        }
+        else if (!_isAdministrator)
+        {
+            query = query.Where(a => a.UserId == _currentUserId.Value);
+        }
+        else
+        {
+            query = query.Include(a => a.SysUser);
+        }
+
+        query
+            .WhereIf(!string.IsNullOrWhiteSpace(e.SearchText),
+                a => a.ProjectName.Contains(e.SearchText!)
+                     || a.ProjectCode.Contains(e.SearchText!)
+                     || a.Description.Contains(e.SearchText!)
+                     || a.Remark.Contains(e.SearchText!)
+                     || a.Keywords.Contains(e.SearchText!))
+            .OrderByDescending(a => a.Id);
+    }
+
+    private async Task<bool> HandleSaveAsync(VideoProject item, bool isNew)
+    {
+        await RefreshCurrentUserScopeAsync();
+        if (!_currentUserId.HasValue)
+        {
+            ToastService.Warning("无法保存", "请先登录。");
+            return false;
+        }
+
+        if (!_isAdministrator)
+        {
+            if (!isNew)
+            {
+                var ownsProject = await FreeSql.Select<VideoProject>()
+                    .Where(p => p.Id == item.Id && p.UserId == _currentUserId.Value)
+                    .AnyAsync();
+                if (!ownsProject)
+                {
+                    ToastService.Warning("无法保存", "无权修改该项目。");
+                    return false;
+                }
+            }
+
+            item.UserId = _currentUserId.Value;
+        }
+        else if (isNew && item.UserId <= 0)
+        {
+            item.UserId = _currentUserId.Value;
+        }
+
+        if (isNew)
+        {
+            await FreeSql.Insert(item).ExecuteAffrowsAsync();
+        }
+        else
+        {
+            await FreeSql.Update<VideoProject>().SetSource(item).ExecuteAffrowsAsync();
+        }
+
+        return true;
+    }
+
+    private async Task RefreshCurrentUserScopeAsync()
+    {
+        var token = await JSRuntime.InvokeAsync<string?>("neoAdminAuth.getToken");
+        (_currentUserId, _isAdministrator) = await CurrentUserRoleService.ResolveAsync(token);
+    }
+
+    private static string GetOwnerDisplayName(VideoProject item)
+    {
+        if (item.SysUser is not null)
+        {
+            return string.IsNullOrWhiteSpace(item.SysUser.Nickname)
+                ? item.SysUser.Username
+                : item.SysUser.Nickname;
+        }
+
+        return item.UserId > 0 ? $"用户 #{item.UserId}" : "-";
+    }
+
+    private static bool HasFinishedVideoUrl(VideoProject item) =>
+        !string.IsNullOrWhiteSpace(item.FinishedVideoUrl);
+
+    private string GetFinishedVideoDownloadUrl(VideoProject item) =>
+        NavigationManager.ToMediaUrl(item.FinishedVideoUrl) ?? string.Empty;
+
+    private async Task OpenActiveJobsDialogAsync()
+    {
+        await RefreshActiveJobsAsync();
+        _activeJobsDialogOpen = true;
+    }
+
+    private void CloseActiveJobsDialog() => _activeJobsDialogOpen = false;
+
+    private async Task RefreshActiveJobsAsync()
+    {
+        _activeJobs = await ProjectJobService.ListAllActiveJobsAsync(ActiveJobsUserFilter);
+        _activeJobCount = _activeJobs.Count;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshActiveJobCountAsync()
+    {
+        _activeJobCount = await ProjectJobService.CountAllActiveJobsAsync(ActiveJobsUserFilter);
+    }
+
+    private async Task OpenProjectFromJobAsync(ActiveProjectJobRow row)
+    {
+        _activeJobsDialogOpen = false;
+        if (!_currentUserId.HasValue)
+        {
+            return;
+        }
+
+        var projectQuery = FreeSql.Select<VideoProject>()
+            .Where(p => p.Id == row.Job.ProjectId);
+        if (!_isAdministrator)
+        {
+            projectQuery = projectQuery.Where(p => p.UserId == _currentUserId.Value);
+        }
+
+        var project = await projectQuery.ToOneAsync();
+        if (project is null)
+        {
+            ToastService.Warning("无法打开", "该项目不存在或无权访问。");
+            return;
+        }
+
+        await table.EditItemAsync(project);
+    }
+
+    private void StartPolling()
+    {
+        _pollCts = new CancellationTokenSource();
+        _pollTimer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        _pollLoopTask = RunPollLoopAsync(_pollCts.Token);
+    }
+
+    private async Task RunPollLoopAsync(CancellationToken cancellationToken)
+    {
+        if (_pollTimer is null)
+        {
+            return;
+        }
+
+        try
+        {
+            while (await _pollTimer.WaitForNextTickAsync(cancellationToken))
+            {
+                await RefreshActiveJobCountAsync();
+                if (_activeJobsDialogOpen)
+                {
+                    await RefreshActiveJobsAsync();
+                }
+                else
+                {
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private static string GetJobTypeLabel(ProjectJobType type) =>
+        type == ProjectJobType.Transcribe ? "口播稿识别" : "视频压制";
+
+    private static string GetJobStatusLabel(ProjectJobStatus status) => status switch
+    {
+        ProjectJobStatus.Pending => "排队中",
+        ProjectJobStatus.Running => "运行中",
+        _ => status.ToString(),
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_pollCts is not null)
+        {
+            await _pollCts.CancelAsync();
+            _pollCts.Dispose();
+        }
+
+        _pollTimer?.Dispose();
+
+        if (_pollLoopTask is not null)
+        {
+            try
+            {
+                await _pollLoopTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+    }
+}

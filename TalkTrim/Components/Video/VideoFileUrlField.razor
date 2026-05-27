@@ -1,0 +1,137 @@
+@namespace TalkTrim.Components.Video
+@using Microsoft.AspNetCore.Components.Forms
+@using TalkTrim.Services
+@using NeoAdmin.Blazor.Extensions
+@using NeoAdmin.Blazor.Services
+
+<div class="space-y-2">
+    <Label For="@InputId">视频素材URL</Label>
+    @if (HasVideo)
+    {
+        <div class="relative w-full max-w-md">
+            <video controls
+                   class="w-full rounded-md border bg-background"
+                   src="@NavigationManager.ToMediaUrl(VideoFileUrl)">
+                您的浏览器不支持视频预览。
+            </video>
+            <Button Type="ButtonType.Button"
+                    Variant="ButtonVariant.Secondary"
+                    Size="ButtonSize.Icon"
+                    Class="absolute right-2 top-2 z-10 h-8 w-8 rounded-full bg-background/90 shadow-sm"
+                    Title="清除视频"
+                    OnClick="ClearVideoAsync">
+                <LucideIcon Name="x" Size="16" />
+            </Button>
+        </div>
+    }
+    else
+    {
+        <Input Id="@InputId"
+               Class="w-full"
+               MaxLength="500"
+               Placeholder="上传后的素材地址"
+               Value="@VideoFileUrl"
+               ValueChanged="@(v => VideoFileUrlChanged.InvokeAsync(v ?? string.Empty))" />
+        <FileUpload @ref="fileUpload"
+                    Files="selectedFiles"
+                    FilesChanged="OnFilesChangedAsync"
+                    Multiple="false"
+                    Accept="video/*"
+                    MaxFileSize="524288000"
+                    ShowPreview="true"
+                    Disabled="isUploading" />
+        <p class="text-xs text-muted-foreground">
+            @UploadHint
+        </p>
+    }
+</div>
+
+@code {
+    private const string UploadDirectory = "video";
+
+    [Parameter]
+    public string InputId { get; set; } = "project-video";
+
+    [Parameter]
+    public string VideoFileUrl { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> VideoFileUrlChanged { get; set; }
+
+    [Inject]
+    private FileService FileService { get; set; } = default!;
+
+    [Inject]
+    private OssUploadService OssUploadService { get; set; } = default!;
+
+    [Inject]
+    private IToastService ToastService { get; set; } = default!;
+
+    [Inject]
+    private NavigationManager NavigationManager { get; set; } = default!;
+
+    private FileUpload? fileUpload;
+    private List<IBrowserFile> selectedFiles = [];
+    private bool isUploading;
+
+    private bool HasVideo => !string.IsNullOrWhiteSpace(VideoFileUrl);
+
+    private string UploadHint =>
+        isUploading
+            ? "正在上传，请稍候…"
+            : OssUploadService.IsEnabled
+                ? "选择视频后将自动上传到阿里云 OSS，签名 URL 会填入上方（有效期见 appsettings Oss.SignedUrlExpireSeconds）。"
+                : "选择视频后将自动上传到本站，地址会填入上方 URL。";
+
+    private async Task ClearVideoAsync()
+    {
+        await VideoFileUrlChanged.InvokeAsync(string.Empty);
+        selectedFiles = [];
+        if (fileUpload is not null)
+        {
+            await fileUpload.ClearFiles();
+        }
+    }
+
+    private async Task OnFilesChangedAsync(List<IBrowserFile> files)
+    {
+        selectedFiles = files;
+        if (files.Count == 0 || isUploading)
+        {
+            return;
+        }
+
+        isUploading = true;
+        try
+        {
+            string url;
+            if (OssUploadService.IsEnabled)
+            {
+                url = await OssUploadService.UploadBrowserFileAsync(files[0]);
+            }
+            else
+            {
+                var uploaded = await FileService.UploadFileAsync(files[0], UploadDirectory, isRename: true);
+                url = uploaded.LinkUrl;
+            }
+
+            await VideoFileUrlChanged.InvokeAsync(url);
+            await InvokeAsync(StateHasChanged);
+            ToastService.Success("视频", OssUploadService.IsEnabled ? "已上传到阿里云 OSS" : "上传成功，已填入 URL");
+        }
+        catch (Exception ex)
+        {
+            ToastService.Error("视频上传失败", ex.Message);
+        }
+        finally
+        {
+            selectedFiles = [];
+            if (fileUpload is not null)
+            {
+                await fileUpload.ClearFiles();
+            }
+
+            isUploading = false;
+        }
+    }
+}

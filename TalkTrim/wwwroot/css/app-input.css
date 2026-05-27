@@ -1,0 +1,14 @@
+/*
+  Tailwind v4 入口（NeoUI 主题联动）
+  https://neoui.io/docs/theming — 颜色变量由 App.razor 中的 NeoUI 主题 CSS 提供，此处只生成 utility。
+*/
+@config "../../tailwind.config.js";
+@import "tailwindcss";
+/* 不把 oklch 烘焙进构建产物，运行时随 NeoUI 主题切换 */
+@theme inline;
+
+@layer base {
+  :root {
+    --sidebar-width: 16rem;
+  }
+}

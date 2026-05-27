@@ -1,0 +1,20 @@
+# 路径均相对本文件所在目录，可在任意目录执行 docker-auto.sh
+services:
+  myadmin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: myadmin:latest
+    container_name: myadmin
+    ports:
+      - "${HOST_PORT:-5050}:80"
+    environment:
+      TZ: Asia/Shanghai
+    working_dir: /app
+    volumes:
+      - ./Logs:/app/Logs
+      - ./wwwroot/uploads:/app/wwwroot/uploads
+      - ./wwwroot/avatars:/app/wwwroot/avatars
+      - ./keys:/app/keys
+      - ./neoadmin.db:/app/neoadmin.db
+    restart: unless-stopped

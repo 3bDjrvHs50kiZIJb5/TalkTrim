@@ -1,0 +1,121 @@
+@namespace TalkTrim.Components.Video
+@using Microsoft.AspNetCore.Components.Forms
+@using NeoAdmin.Blazor.Extensions
+@using NeoAdmin.Blazor.Services
+
+<div class="space-y-2">
+    <div class="flex items-center justify-between gap-2">
+        <Label For="@InputId">视频缩略图 URL</Label>
+        <a class="shrink-0 text-sm text-primary underline underline-offset-2 hover:text-primary/80"
+           href="https://chatgpt.com"
+           target="_blank"
+           rel="noopener noreferrer">
+            ChatGPT
+        </a>
+    </div>
+    <Input Id="@InputId"
+           Class="w-full"
+           MaxLength="500"
+           Value="@ThumbnailUrl"
+           ValueChanged="@(v => ThumbnailUrlChanged.InvokeAsync(v ?? string.Empty))" />
+    @if (HasThumbnail)
+    {
+        <div class="relative inline-block max-w-full">
+            <img src="@NavigationManager.ToMediaUrl(ThumbnailUrl)"
+                 alt="缩略图预览"
+                 class="h-32 max-w-full rounded-md border bg-background object-cover" />
+            <Button Type="ButtonType.Button"
+                    Variant="ButtonVariant.Secondary"
+                    Size="ButtonSize.Icon"
+                    Class="absolute right-2 top-2 z-10 h-8 w-8 rounded-full bg-background/90 shadow-sm"
+                    Title="清除缩略图"
+                    OnClick="ClearThumbnailAsync">
+                <LucideIcon Name="x" Size="16" />
+            </Button>
+        </div>
+    }
+    else
+    {
+        <FileUpload @ref="fileUpload"
+                    Files="selectedFiles"
+                    FilesChanged="OnFilesChangedAsync"
+                    Multiple="false"
+                    Accept="image/*"
+                    MaxFileSize="5242880"
+                    ShowPreview="true"
+                    Disabled="isUploading" />
+        <p class="text-xs text-muted-foreground">
+            @(isUploading ? "正在上传，请稍候…" : "选择图片后将自动上传，地址会填入上方 URL。")
+        </p>
+    }
+</div>
+
+@code {
+    private const string UploadDirectory = "video";
+
+    [Parameter]
+    public string InputId { get; set; } = "project-thumb";
+
+    [Parameter]
+    public string ThumbnailUrl { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> ThumbnailUrlChanged { get; set; }
+
+    [Inject]
+    private FileService FileService { get; set; } = default!;
+
+    [Inject]
+    private IToastService ToastService { get; set; } = default!;
+
+    [Inject]
+    private NavigationManager NavigationManager { get; set; } = default!;
+
+    private FileUpload? fileUpload;
+    private List<IBrowserFile> selectedFiles = [];
+    private bool isUploading;
+
+    private bool HasThumbnail => !string.IsNullOrWhiteSpace(ThumbnailUrl);
+
+    private async Task ClearThumbnailAsync()
+    {
+        await ThumbnailUrlChanged.InvokeAsync(string.Empty);
+        selectedFiles = [];
+        if (fileUpload is not null)
+        {
+            await fileUpload.ClearFiles();
+        }
+    }
+
+    private async Task OnFilesChangedAsync(List<IBrowserFile> files)
+    {
+        selectedFiles = files;
+        if (files.Count == 0 || isUploading)
+        {
+            return;
+        }
+
+        isUploading = true;
+        try
+        {
+            var uploaded = await FileService.UploadFileAsync(files[0], UploadDirectory, isRename: true);
+            await ThumbnailUrlChanged.InvokeAsync(uploaded.LinkUrl);
+            await InvokeAsync(StateHasChanged);
+            ToastService.Success("缩略图", "上传成功，已填入 URL");
+        }
+        catch (Exception ex)
+        {
+            ToastService.Error("缩略图上传失败", ex.Message);
+        }
+        finally
+        {
+            selectedFiles = [];
+            if (fileUpload is not null)
+            {
+                await fileUpload.ClearFiles();
+            }
+
+            isUploading = false;
+        }
+    }
+}

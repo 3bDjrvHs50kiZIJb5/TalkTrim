@@ -1,0 +1,46 @@
+@namespace TalkTrim.Components.Video
+@using NeoAdmin.Blazor.Extensions
+
+<div class="space-y-2">
+    <Label For="@InputId">成片地址</Label>
+    <div class="flex flex-wrap items-center gap-2">
+        <Input Id="@InputId"
+               Class="min-w-0 flex-1"
+               MaxLength="500"
+               Placeholder="压制完成后的成片地址"
+               Value="@FinishedVideoUrl"
+               ValueChanged="@(v => FinishedVideoUrlChanged.InvokeAsync(v ?? string.Empty))" />
+        @if (HasUrl)
+        {
+            <LinkButton Variant="ButtonVariant.Outline"
+                        Href="@DownloadUrl"
+                        Target="_blank">
+                下载
+            </LinkButton>
+        }
+        else
+        {
+            <Button Variant="ButtonVariant.Outline" Disabled="true">
+                下载
+            </Button>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string InputId { get; set; } = "project-finished-video";
+
+    [Parameter]
+    public string FinishedVideoUrl { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> FinishedVideoUrlChanged { get; set; }
+
+    [Inject]
+    private NavigationManager NavigationManager { get; set; } = default!;
+
+    private bool HasUrl => !string.IsNullOrWhiteSpace(FinishedVideoUrl);
+
+    private string DownloadUrl => NavigationManager.ToMediaUrl(FinishedVideoUrl) ?? string.Empty;
+}
