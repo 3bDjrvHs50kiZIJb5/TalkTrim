@@ -110,8 +110,8 @@
         </div>
         <div class="space-y-2">
             <Label For="project-script">口播稿内容</Label>
-            <div class="talktrim-scroll-textarea">
-                <Textarea Id="project-script" Rows="12"
+            <div class="talktrim-scroll-textarea talktrim-scroll-textarea-sm">
+                <Textarea Id="project-script" Rows="6"
                           Class="w-full"
                           @bind-Value="Item.ScriptContent" />
             </div>
@@ -147,6 +147,48 @@
                 </div>
             </ResizablePanel>
         </ResizablePanelGroup>
+
+        <div class="mt-4 space-y-4 rounded-lg border border-border p-4">
+            <p class="text-sm font-medium">字幕工具</p>
+            <p class="text-xs text-muted-foreground">
+                仅修改下方编辑区的中英文字幕文本，不会自动写入数据库；需要时请点项目保存。
+            </p>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <Button Type="ButtonType.Button"
+                        Variant="ButtonVariant.Outline"
+                        Size="ButtonSize.Small"
+                        OnClick="RemoveSubtitleFillerWords">
+                    去除语气词
+                </Button>
+                <span class="text-xs text-muted-foreground">
+                    去除啊、嗯、呃、那个、you know、um 等口语填充词（中英文分别处理）
+                </span>
+            </div>
+
+            <div class="space-y-2">
+                <p class="text-sm font-medium">批量替换</p>
+                <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                    <div class="min-w-[10rem] flex-1 space-y-1">
+                        <Label For="subtitle-find">查找内容</Label>
+                        <Input Id="subtitle-find" Class="w-full" @bind-Value="_subtitleFindText"
+                               Placeholder="要替换的原文" />
+                    </div>
+                    <div class="min-w-[10rem] flex-1 space-y-1">
+                        <Label For="subtitle-replace">替换为</Label>
+                        <Input Id="subtitle-replace" Class="w-full" @bind-Value="_subtitleReplaceText"
+                               Placeholder="新内容，可留空表示删除" />
+                    </div>
+                    <Button Type="ButtonType.Button"
+                            Variant="ButtonVariant.Outline"
+                            Size="ButtonSize.Small"
+                            OnClick="ReplaceSubtitleText">
+                        一键替换中英字幕
+                    </Button>
+                </div>
+                <p class="text-xs text-muted-foreground">在中、英文字幕全文执行查找替换（区分大小写）。</p>
+            </div>
+        </div>
     </TabsContent>
 
     <TabsContent Value="media" Class="mt-4 space-y-4">
@@ -339,6 +381,8 @@
     private string _activeTab = "basic";
     private string _speedText = string.Empty;
     private string _breathTrimText = string.Empty;
+    private string _subtitleFindText = string.Empty;
+    private string _subtitleReplaceText = string.Empty;
     private bool _isTranscribing;
     private string? _transcribeStatus;
     private int _transcribePercent;
@@ -383,6 +427,52 @@
         }
 
         return null;
+    }
+
+    private void RemoveSubtitleFillerWords()
+    {
+        var hadChinese = !string.IsNullOrWhiteSpace(Item.ChineseSubtitles);
+        var hadEnglish = !string.IsNullOrWhiteSpace(Item.EnglishSubtitles);
+        if (!hadChinese && !hadEnglish)
+        {
+            ToastService.Warning("无字幕内容", "请先填写中或英文字幕。");
+            return;
+        }
+
+        Item.ChineseSubtitles = SubtitleSrtTextTools.RemoveFillerWords(Item.ChineseSubtitles, chinese: true);
+        Item.EnglishSubtitles = SubtitleSrtTextTools.RemoveFillerWords(Item.EnglishSubtitles, chinese: false);
+        ToastService.Success("已处理", "已去除中英字幕中的常见语气词，请检查后保存项目。");
+    }
+
+    private void ReplaceSubtitleText()
+    {
+        if (string.IsNullOrEmpty(_subtitleFindText))
+        {
+            ToastService.Warning("请输入查找内容", "「查找内容」不能为空。");
+            return;
+        }
+
+        var hadChinese = !string.IsNullOrWhiteSpace(Item.ChineseSubtitles);
+        var hadEnglish = !string.IsNullOrWhiteSpace(Item.EnglishSubtitles);
+        if (!hadChinese && !hadEnglish)
+        {
+            ToastService.Warning("无字幕内容", "请先填写中或英文字幕。");
+            return;
+        }
+
+        var (zh, zhCount) = SubtitleSrtTextTools.ReplaceAll(Item.ChineseSubtitles, _subtitleFindText, _subtitleReplaceText);
+        var (en, enCount) = SubtitleSrtTextTools.ReplaceAll(Item.EnglishSubtitles, _subtitleFindText, _subtitleReplaceText);
+        Item.ChineseSubtitles = zh;
+        Item.EnglishSubtitles = en;
+
+        var total = zhCount + enCount;
+        if (total == 0)
+        {
+            ToastService.Warning("未找到匹配", $"中英字幕中均未发现「{_subtitleFindText}」。");
+            return;
+        }
+
+        ToastService.Success("替换完成", $"中文 {zhCount} 处，英文 {enCount} 处，共 {total} 处。请保存项目。");
     }
 
     protected override async Task OnInitializedAsync()

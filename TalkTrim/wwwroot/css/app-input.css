@@ -13,11 +13,19 @@
   }
 }
 
-/* NeoUI Textarea 默认 field-sizing: content 会随内容撑高，此处强制固定高度并在框内滚动 */
+/* NeoUI Textarea 默认 field-sizing: content 会随内容撑高，此处强制固定高度并在框内滚动。
+   Rows / min-height 单独改无效：实际高度由 --talktrim-textarea-height 决定（见 !important）。 */
 @layer components {
   .talktrim-scroll-textarea {
-    max-height: 24rem;
+    --talktrim-textarea-height: 18rem;
+    --talktrim-textarea-min-height: 12rem;
+    max-height: var(--talktrim-textarea-height);
     overflow: hidden;
+  }
+
+  .talktrim-scroll-textarea-sm {
+    --talktrim-textarea-height: 10rem;
+    --talktrim-textarea-min-height: 8rem;
   }
 
   .talktrim-scroll-textarea textarea,
@@ -25,9 +33,9 @@
     box-sizing: border-box;
     display: block !important;
     width: 100% !important;
-    height: 24rem !important;
-    max-height: 24rem !important;
-    min-height: 12rem !important;
+    height: var(--talktrim-textarea-height) !important;
+    max-height: var(--talktrim-textarea-height) !important;
+    min-height: var(--talktrim-textarea-min-height) !important;
     field-sizing: fixed !important;
     overflow-y: auto !important;
     resize: vertical !important;
