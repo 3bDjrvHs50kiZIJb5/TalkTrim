@@ -8,17 +8,20 @@ namespace TalkTrim.Services;
 public sealed class ProjectJobExecutor
 {
     private readonly ProjectJobService _jobService;
+    private readonly ProjectJobCancellationRegistry _cancellationRegistry;
     private readonly VideoTranscriptionService _transcriptionService;
     private readonly VideoEncodeService _encodeService;
     private readonly ILogger<ProjectJobExecutor> _logger;
 
     public ProjectJobExecutor(
         ProjectJobService jobService,
+        ProjectJobCancellationRegistry cancellationRegistry,
         VideoTranscriptionService transcriptionService,
         VideoEncodeService encodeService,
         ILogger<ProjectJobExecutor> logger)
     {
         _jobService = jobService;
+        _cancellationRegistry = cancellationRegistry;
         _transcriptionService = transcriptionService;
         _encodeService = encodeService;
         _logger = logger;
@@ -33,37 +36,58 @@ public sealed class ProjectJobExecutor
             return;
         }
 
-        if (job.Status is ProjectJobStatus.Succeeded or ProjectJobStatus.Failed)
+        var projectId = job.ProjectId;
+
+        if (job.Status is ProjectJobStatus.Succeeded or ProjectJobStatus.Failed or ProjectJobStatus.Cancelled)
         {
             return;
         }
 
-        await _jobService.MarkRunningAsync(jobId, cancellationToken);
-        _logger.LogInformation(
-            "开始处理后台任务：JobId={JobId}, ProjectId={ProjectId}, JobType={JobType}",
-            jobId,
-            job.ProjectId,
-            job.JobType);
+        var jobCancellation = _cancellationRegistry.Register(jobId);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, jobCancellation);
+        var linkedToken = linkedCts.Token;
 
         try
         {
+            job = await _jobService.GetJobAsync(jobId, linkedToken);
+            if (job is null || job.Status == ProjectJobStatus.Cancelled)
+            {
+                return;
+            }
+
+            await _jobService.MarkRunningAsync(jobId, linkedToken);
+            _logger.LogInformation(
+                "开始处理后台任务：JobId={JobId}, ProjectId={ProjectId}, JobType={JobType}",
+                jobId,
+                job.ProjectId,
+                job.JobType);
+
             if (job.JobType == ProjectJobType.Transcribe)
             {
-                await ExecuteTranscribeAsync(job, cancellationToken);
+                await ExecuteTranscribeAsync(job, linkedToken);
             }
             else if (job.JobType == ProjectJobType.Encode)
             {
-                await ExecuteEncodeAsync(job, cancellationToken);
+                await ExecuteEncodeAsync(job, linkedToken);
             }
             else
             {
                 throw new InvalidOperationException($"未知任务类型：{job.JobType}");
             }
         }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogInformation("后台任务被用户取消：JobId={JobId}", jobId);
+            await _jobService.MarkCancelledAsync(jobId, "用户已取消任务", CancellationToken.None);
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "后台任务失败：JobId={JobId}, ProjectId={ProjectId}", jobId, job.ProjectId);
-            await _jobService.MarkFailedAsync(jobId, ex.Message, cancellationToken);
+            _logger.LogError(ex, "后台任务失败：JobId={JobId}, ProjectId={ProjectId}", jobId, projectId);
+            await _jobService.MarkFailedAsync(jobId, ex.Message, CancellationToken.None);
+        }
+        finally
+        {
+            _cancellationRegistry.Unregister(jobId);
         }
     }
 

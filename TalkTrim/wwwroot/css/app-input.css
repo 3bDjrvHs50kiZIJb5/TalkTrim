@@ -12,3 +12,29 @@
     --sidebar-width: 16rem;
   }
 }
+
+/* NeoUI Textarea 默认 field-sizing: content 会随内容撑高，此处强制固定高度并在框内滚动 */
+@layer components {
+  .talktrim-scroll-textarea {
+    max-height: 24rem;
+    overflow: hidden;
+  }
+
+  .talktrim-scroll-textarea textarea,
+  .talktrim-scroll-textarea [data-slot="textarea-control"] {
+    box-sizing: border-box;
+    display: block !important;
+    width: 100% !important;
+    height: 24rem !important;
+    max-height: 24rem !important;
+    min-height: 12rem !important;
+    field-sizing: fixed !important;
+    overflow-y: auto !important;
+    resize: vertical !important;
+  }
+
+  .talktrim-scroll-textarea-resize-none textarea,
+  .talktrim-scroll-textarea-resize-none [data-slot="textarea-control"] {
+    resize: none !important;
+  }
+}

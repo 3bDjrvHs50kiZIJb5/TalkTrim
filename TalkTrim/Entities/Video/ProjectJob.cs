@@ -9,6 +9,7 @@ public enum ProjectJobStatus
     Running = 1,
     Succeeded = 2,
     Failed = 3,
+    Cancelled = 4,
 }
 
 public enum ProjectJobType

@@ -145,12 +145,29 @@
                                 </div>
                             }
                         </div>
-                        <Button Type="ButtonType.Button"
-                                Variant="ButtonVariant.Outline"
-                                Size="ButtonSize.Small"
-                                OnClick="@(() => OpenProjectFromJobAsync(row))">
-                            打开项目
-                        </Button>
+                        <div class="flex flex-wrap gap-2">
+                            <Button Type="ButtonType.Button"
+                                    Variant="ButtonVariant.Outline"
+                                    Size="ButtonSize.Small"
+                                    OnClick="@(() => OpenProjectFromJobAsync(row))">
+                                打开项目
+                            </Button>
+                            <Button Type="ButtonType.Button"
+                                    Variant="ButtonVariant.Outline"
+                                    Size="ButtonSize.Small"
+                                    Disabled="@IsJobCancelling(row.Job.Id)"
+                                    OnClick="@(() => CancelJobAsync(row))">
+                                @if (IsJobCancelling(row.Job.Id))
+                                {
+                                    <LucideIcon Name="loader-circle" Size="14" Class="animate-spin" />
+                                    <span>取消中…</span>
+                                }
+                                else
+                                {
+                                    <span>取消任务</span>
+                                }
+                            </Button>
+                        </div>
                     </div>
                 }
             }
@@ -176,6 +193,7 @@
     private bool _activeJobsDialogOpen;
     private List<ActiveProjectJobRow> _activeJobs = [];
     private int _activeJobCount;
+    private readonly HashSet<long> _cancellingJobIds = [];
     private long? _currentUserId;
     private bool _isAdministrator;
     private PeriodicTimer? _pollTimer;
@@ -316,6 +334,40 @@
         _activeJobCount = await ProjectJobService.CountAllActiveJobsAsync(ActiveJobsUserFilter);
     }
 
+    private bool IsJobCancelling(long jobId) => _cancellingJobIds.Contains(jobId);
+
+    private async Task CancelJobAsync(ActiveProjectJobRow row)
+    {
+        if (!_currentUserId.HasValue || IsJobCancelling(row.Job.Id))
+        {
+            return;
+        }
+
+        _cancellingJobIds.Add(row.Job.Id);
+        try
+        {
+            var cancelled = await ProjectJobService.CancelJobAsync(row.Job.Id, ActiveJobsUserFilter);
+            if (!cancelled)
+            {
+                ToastService.Warning("无法取消", "任务不存在、已结束或无权操作。");
+                return;
+            }
+
+            ToastService.Success("已取消", $"{GetJobTypeLabel(row.Job.JobType)}任务已取消。");
+            await RefreshActiveJobsAsync();
+            await RefreshActiveJobCountAsync();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Error("取消失败", ex.Message);
+        }
+        finally
+        {
+            _cancellingJobIds.Remove(row.Job.Id);
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
     private async Task OpenProjectFromJobAsync(ActiveProjectJobRow row)
     {
         _activeJobsDialogOpen = false;
@@ -382,6 +434,7 @@
     {
         ProjectJobStatus.Pending => "排队中",
         ProjectJobStatus.Running => "运行中",
+        ProjectJobStatus.Cancelled => "已取消",
         _ => status.ToString(),
     };
 

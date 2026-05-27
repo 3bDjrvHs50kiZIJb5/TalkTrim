@@ -16,15 +16,18 @@ public sealed class ProjectJobService
 
     private readonly IFreeSql _freeSql;
     private readonly ProjectJobQueue _queue;
+    private readonly ProjectJobCancellationRegistry _cancellationRegistry;
     private readonly ILogger<ProjectJobService> _logger;
 
     public ProjectJobService(
         IFreeSql freeSql,
         ProjectJobQueue queue,
+        ProjectJobCancellationRegistry cancellationRegistry,
         ILogger<ProjectJobService> logger)
     {
         _freeSql = freeSql;
         _queue = queue;
+        _cancellationRegistry = cancellationRegistry;
         _logger = logger;
     }
 
@@ -216,6 +219,54 @@ public sealed class ProjectJobService
             .Set(j => j.FinishedAt, DateTime.Now)
             .ExecuteAffrowsAsync(cancellationToken);
         _logger.LogWarning("后台任务失败：JobId={JobId}, Error={Error}", jobId, error);
+    }
+
+    public async Task MarkCancelledAsync(
+        long jobId,
+        string message = "用户已取消任务",
+        CancellationToken cancellationToken = default)
+    {
+        await _freeSql.Update<ProjectJob>()
+            .Where(j => j.Id == jobId)
+            .Set(j => j.Status, ProjectJobStatus.Cancelled)
+            .Set(j => j.ProgressMessage, message)
+            .Set(j => j.ErrorMessage, string.Empty)
+            .Set(j => j.FinishedAt, DateTime.Now)
+            .ExecuteAffrowsAsync(cancellationToken);
+        _logger.LogInformation("后台任务已取消：JobId={JobId}, Message={Message}", jobId, message);
+    }
+
+    /// <summary>取消排队中或运行中的任务；非管理员仅能取消自己的项目任务。</summary>
+    public async Task<bool> CancelJobAsync(
+        long jobId,
+        long? userId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var job = await GetJobAsync(jobId, cancellationToken);
+        if (job is null || !ActiveStatuses.Contains(job.Status))
+        {
+            return false;
+        }
+
+        if (userId.HasValue)
+        {
+            var project = await GetProjectAsync(job.ProjectId, cancellationToken);
+            if (project is null || project.UserId != userId.Value)
+            {
+                return false;
+            }
+        }
+
+        if (job.Status == ProjectJobStatus.Pending)
+        {
+            await MarkCancelledAsync(jobId, "用户已取消任务", cancellationToken);
+            return true;
+        }
+
+        await UpdateProgressAsync(jobId, "正在取消…", cancellationToken: cancellationToken);
+        _cancellationRegistry.TryCancel(jobId);
+        _logger.LogInformation("已请求取消运行中的任务：JobId={JobId}", jobId);
+        return true;
     }
 
     public Task SaveProjectSnapshotAsync(Project project, CancellationToken cancellationToken = default) =>

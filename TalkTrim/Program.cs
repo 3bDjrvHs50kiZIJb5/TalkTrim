@@ -37,6 +37,7 @@ builder.Services.AddScoped<VideoTranscriptionService>();
 builder.Services.AddScoped<VideoEncodeService>();
 builder.Services.AddScoped<CurrentUserRoleService>();
 builder.Services.AddSingleton<ProjectJobQueue>();
+builder.Services.AddSingleton<ProjectJobCancellationRegistry>();
 builder.Services.AddScoped<ProjectJobService>();
 builder.Services.AddScoped<ProjectJobExecutor>();
 builder.Services.AddHostedService<ProjectJobBackgroundWorker>();

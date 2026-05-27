@@ -1,4 +1,5 @@
 using Aliyun.OSS;
+using Aliyun.OSS.Common;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.Extensions.Options;
 
@@ -25,8 +26,14 @@ public sealed class OssUploadService
         && !string.IsNullOrWhiteSpace(_options.AccessKeySecret)
         && !string.IsNullOrWhiteSpace(_options.Region);
 
+    public Task<string> UploadBrowserFileAsync(
+        IBrowserFile file,
+        CancellationToken cancellationToken = default)
+        => UploadBrowserFileAsync(file, progress: null, cancellationToken);
+
     public async Task<string> UploadBrowserFileAsync(
         IBrowserFile file,
+        IProgress<UploadProgressReport>? progress,
         CancellationToken cancellationToken = default)
     {
         if (!IsEnabled)
@@ -46,15 +53,21 @@ public sealed class OssUploadService
 
         try
         {
-            await using (Stream browserStream = file.OpenReadStream(file.Size, cancellationToken))
             await using (FileStream tempFile = File.Create(tempPath))
             {
-                await browserStream.CopyToAsync(tempFile, cancellationToken);
+                await BrowserFileUploadHelper.CopyToAsync(
+                    file,
+                    tempFile,
+                    progress,
+                    percentStart: 0,
+                    percentEnd: 45,
+                    message: "正在接收视频文件…",
+                    cancellationToken);
             }
 
             // Blazor 的 BrowserFileStream 不支持同步读，OSS SDK 的 PutObject(Stream) 会触发该错误。
             await Task.Run(
-                () => client.PutObject(_options.Bucket, objectKey, tempPath),
+                () => PutLocalFileWithProgress(client, objectKey, tempPath, progress),
                 cancellationToken);
         }
         finally
@@ -64,6 +77,8 @@ public sealed class OssUploadService
                 File.Delete(tempPath);
             }
         }
+
+        progress?.Report(new UploadProgressReport(100, "上传完成"));
 
         var expireUtc = DateTime.UtcNow.AddSeconds(Math.Max(60, _options.SignedUrlExpireSeconds));
         var signedUri = client.GeneratePresignedUri(_options.Bucket, objectKey, expireUtc);
@@ -76,6 +91,28 @@ public sealed class OssUploadService
             file.Size);
 
         return url;
+    }
+
+    private void PutLocalFileWithProgress(
+        OssClient client,
+        string objectKey,
+        string localFilePath,
+        IProgress<UploadProgressReport>? progress)
+    {
+        using var fileStream = File.OpenRead(localFilePath);
+        var request = new PutObjectRequest(_options.Bucket, objectKey, fileStream);
+        request.StreamTransferProgress += (_, args) =>
+        {
+            if (args.TotalBytes <= 0)
+            {
+                return;
+            }
+
+            var percent = 45 + (int)(args.TransferredBytes * 54 / args.TotalBytes);
+            progress?.Report(new UploadProgressReport(Math.Clamp(percent, 45, 99), "正在上传到 OSS…"));
+        };
+
+        client.PutObject(request);
     }
 
     /// <summary>上传本地文件到 OSS 并返回签名 URL（供 ASR 使用 16kHz WAV 等）。</summary>

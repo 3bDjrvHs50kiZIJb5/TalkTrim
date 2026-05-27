@@ -71,6 +71,20 @@
                             <span class="shrink-0 text-xs tabular-nums text-muted-foreground">@_transcribePercent%</span>
                         </div>
                     }
+                    <Button Type="ButtonType.Button"
+                            Variant="ButtonVariant.Outline"
+                            Size="ButtonSize.Small"
+                            Disabled="@_isCancellingJob"
+                            OnClick="CancelTranscribeJobAsync">
+                        @if (_isCancellingJob)
+                        {
+                            <span>取消中…</span>
+                        }
+                        else
+                        {
+                            <span>取消任务</span>
+                        }
+                    </Button>
                 </AlertDescription>
             </Alert>
         }
@@ -94,9 +108,11 @@
         </div>
         <div class="space-y-2">
             <Label For="project-script">口播稿内容</Label>
-            <Textarea Id="project-script" Rows="32"
-                      Class="field-sizing-fixed min-h-72 w-full max-h-[calc(85vh-8rem)] resize-y"
-                      @bind-Value="Item.ScriptContent" />
+            <div class="talktrim-scroll-textarea">
+                <Textarea Id="project-script" Rows="12"
+                          Class="w-full"
+                          @bind-Value="Item.ScriptContent" />
+            </div>
         </div>
     </TabsContent>
 
@@ -105,23 +121,27 @@
             自动识别后会填入英文 SRT 与中文 SRT；压制时也可使用双语合并格式（识别结果已同步到中英文字幕字段）。
         </p>
         <ResizablePanelGroup Direction="ResizableDirection.Horizontal"
-                             Class="h-[min(42rem,calc(85vh-8rem))] min-h-[28rem] w-full rounded-lg border"
+                             Class="h-[min(24rem,calc(70vh-12rem))] min-h-48 w-full rounded-lg border"
                              DefaultSizes="@(new double[] { 50, 50 })">
             <ResizablePanel MinSize="20" Class="flex min-h-0 min-w-0 flex-col overflow-hidden">
                 <div class="flex h-full min-h-0 flex-col gap-2 p-3">
                     <Label For="project-chinese-subtitles">中文字幕（SRT）</Label>
-                    <Textarea Id="project-chinese-subtitles" Rows="28"
-                              Class="field-sizing-fixed min-h-96 flex-1 w-full resize-none"
-                              @bind-Value="Item.ChineseSubtitles" />
+                    <div class="talktrim-scroll-textarea talktrim-scroll-textarea-resize-none min-h-0 flex-1">
+                        <Textarea Id="project-chinese-subtitles" Rows="12"
+                                  Class="w-full"
+                                  @bind-Value="Item.ChineseSubtitles" />
+                    </div>
                 </div>
             </ResizablePanel>
             <ResizableHandle WithHandle="true" />
             <ResizablePanel MinSize="20" Class="flex min-h-0 min-w-0 flex-col overflow-hidden">
                 <div class="flex h-full min-h-0 flex-col gap-2 p-3">
                     <Label For="project-english-subtitles">英文字幕（SRT）</Label>
-                    <Textarea Id="project-english-subtitles" Rows="28"
-                              Class="field-sizing-fixed min-h-96 flex-1 w-full resize-none"
-                              @bind-Value="Item.EnglishSubtitles" />
+                    <div class="talktrim-scroll-textarea talktrim-scroll-textarea-resize-none min-h-0 flex-1">
+                        <Textarea Id="project-english-subtitles" Rows="12"
+                                  Class="w-full"
+                                  @bind-Value="Item.EnglishSubtitles" />
+                    </div>
                 </div>
             </ResizablePanel>
         </ResizablePanelGroup>
@@ -263,6 +283,20 @@
                             <span class="shrink-0 text-xs tabular-nums text-muted-foreground">@_encodePercent%</span>
                         </div>
                     }
+                    <Button Type="ButtonType.Button"
+                            Variant="ButtonVariant.Outline"
+                            Size="ButtonSize.Small"
+                            Disabled="@_isCancellingJob"
+                            OnClick="CancelEncodeJobAsync">
+                        @if (_isCancellingJob)
+                        {
+                            <span>取消中…</span>
+                        }
+                        else
+                        {
+                            <span>取消任务</span>
+                        }
+                    </Button>
                 </AlertDescription>
             </Alert>
         }
@@ -309,6 +343,9 @@
     private bool _isEncoding;
     private string? _encodeStatus;
     private int _encodePercent;
+    private long _activeTranscribeJobId;
+    private long _activeEncodeJobId;
+    private bool _isCancellingJob;
     private long _lastNotifiedTranscribeJobId;
     private long _lastNotifiedEncodeJobId;
     private PeriodicTimer? _pollTimer;
@@ -594,6 +631,8 @@
             _transcribePercent = 0;
             _encodeStatus = null;
             _encodePercent = 0;
+            _activeTranscribeJobId = 0;
+            _activeEncodeJobId = 0;
             return;
         }
 
@@ -604,9 +643,62 @@
         _isTranscribing = transcribeJob is not null;
         _transcribeStatus = transcribeJob?.ProgressMessage;
         _transcribePercent = transcribeJob?.ProgressPercent ?? 0;
+        _activeTranscribeJobId = transcribeJob?.Id ?? 0;
         _isEncoding = encodeJob is not null;
         _encodeStatus = encodeJob?.ProgressMessage;
         _encodePercent = encodeJob?.ProgressPercent ?? 0;
+        _activeEncodeJobId = encodeJob?.Id ?? 0;
+    }
+
+    private async Task CancelTranscribeJobAsync()
+    {
+        if (_activeTranscribeJobId <= 0)
+        {
+            return;
+        }
+
+        await CancelJobAsync(_activeTranscribeJobId, "口播稿识别");
+    }
+
+    private async Task CancelEncodeJobAsync()
+    {
+        if (_activeEncodeJobId <= 0)
+        {
+            return;
+        }
+
+        await CancelJobAsync(_activeEncodeJobId, "视频压制");
+    }
+
+    private async Task CancelJobAsync(long jobId, string typeLabel)
+    {
+        if (_isCancellingJob)
+        {
+            return;
+        }
+
+        _isCancellingJob = true;
+        try
+        {
+            var cancelled = await ProjectJobService.CancelJobAsync(jobId);
+            if (!cancelled)
+            {
+                ToastService.Warning("无法取消", "任务不存在或已结束。");
+                return;
+            }
+
+            ToastService.Success("已取消", $"{typeLabel}任务已取消。");
+            await RefreshFromDatabaseAsync();
+        }
+        catch (Exception ex)
+        {
+            ToastService.Error("取消失败", ex.Message);
+        }
+        finally
+        {
+            _isCancellingJob = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private async Task InitializeTerminalJobTrackingAsync()
@@ -624,7 +716,9 @@
             return 0;
         }
 
-        return job.Status is ProjectJobStatus.Succeeded or ProjectJobStatus.Failed ? job.Id : 0;
+        return job.Status is ProjectJobStatus.Succeeded or ProjectJobStatus.Failed or ProjectJobStatus.Cancelled
+            ? job.Id
+            : 0;
     }
 
     private void EnsurePolling()
@@ -718,13 +812,17 @@
         var transcribe = await ProjectJobService.GetLatestJobAsync(Item.Id, ProjectJobType.Transcribe);
         if (transcribe is not null
             && transcribe.Id > _lastNotifiedTranscribeJobId
-            && transcribe.Status is ProjectJobStatus.Succeeded or ProjectJobStatus.Failed)
+            && transcribe.Status is ProjectJobStatus.Succeeded or ProjectJobStatus.Failed or ProjectJobStatus.Cancelled)
         {
             _lastNotifiedTranscribeJobId = transcribe.Id;
             if (transcribe.Status == ProjectJobStatus.Succeeded)
             {
                 await RefreshFromDatabaseAsync();
                 ToastService.Success("识别完成", transcribe.ProgressMessage);
+            }
+            else if (transcribe.Status == ProjectJobStatus.Cancelled)
+            {
+                ToastService.Warning("识别已取消", transcribe.ProgressMessage);
             }
             else
             {
@@ -735,13 +833,17 @@
         var encode = await ProjectJobService.GetLatestJobAsync(Item.Id, ProjectJobType.Encode);
         if (encode is not null
             && encode.Id > _lastNotifiedEncodeJobId
-            && encode.Status is ProjectJobStatus.Succeeded or ProjectJobStatus.Failed)
+            && encode.Status is ProjectJobStatus.Succeeded or ProjectJobStatus.Failed or ProjectJobStatus.Cancelled)
         {
             _lastNotifiedEncodeJobId = encode.Id;
             if (encode.Status == ProjectJobStatus.Succeeded)
             {
                 await RefreshFromDatabaseAsync();
                 ToastService.Success("压制完成", encode.ProgressMessage);
+            }
+            else if (encode.Status == ProjectJobStatus.Cancelled)
+            {
+                ToastService.Warning("压制已取消", encode.ProgressMessage);
             }
             else
             {

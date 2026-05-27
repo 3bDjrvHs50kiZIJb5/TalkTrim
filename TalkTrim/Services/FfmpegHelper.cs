@@ -42,13 +42,21 @@ public static partial class FfmpegHelper
         };
 
         process.Start();
-        var stderr = await ReadStderrAsync(process, totalDurationSec, progress, cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
-
-        if (process.ExitCode != 0)
+        try
         {
-            throw new InvalidOperationException(
-                $"ffmpeg 执行失败（exit {process.ExitCode}）：{SummarizeFfmpegError(stderr)}");
+            var stderr = await ReadStderrAsync(process, totalDurationSec, progress, cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+
+            if (process.ExitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    $"ffmpeg 执行失败（exit {process.ExitCode}）：{SummarizeFfmpegError(stderr)}");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            TryKillProcess(process);
+            throw;
         }
     }
 
@@ -184,6 +192,21 @@ public static partial class FfmpegHelper
         }
 
         return string.Join(Environment.NewLine, lines);
+    }
+
+    private static void TryKillProcess(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch
+        {
+            // 取消时尽力终止子进程即可
+        }
     }
 
     private static string ResolveExecutable(string name)

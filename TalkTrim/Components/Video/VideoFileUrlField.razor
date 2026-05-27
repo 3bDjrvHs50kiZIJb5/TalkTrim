@@ -40,9 +40,29 @@
                     MaxFileSize="524288000"
                     ShowPreview="true"
                     Disabled="isUploading" />
-        <p class="text-xs text-muted-foreground">
-            @UploadHint
-        </p>
+        @if (isUploading)
+        {
+            <Alert Variant="AlertVariant.Default">
+                <LucideIcon Name="loader-circle" Size="16" Class="animate-spin" />
+                <AlertTitle>正在上传视频</AlertTitle>
+                <AlertDescription Class="space-y-2">
+                    <p>@(uploadStatus ?? "正在上传，请稍候…")</p>
+                    @if (uploadPercent > 0)
+                    {
+                        <div class="flex items-center gap-2">
+                            <Progress Value="@uploadPercent" Max="100" Class="flex-1" />
+                            <span class="shrink-0 text-xs tabular-nums text-muted-foreground">@uploadPercent%</span>
+                        </div>
+                    }
+                </AlertDescription>
+            </Alert>
+        }
+        else
+        {
+            <p class="text-xs text-muted-foreground">
+                @UploadHint
+            </p>
+        }
     }
 </div>
 
@@ -73,15 +93,15 @@
     private FileUpload? fileUpload;
     private List<IBrowserFile> selectedFiles = [];
     private bool isUploading;
+    private int uploadPercent;
+    private string? uploadStatus;
 
     private bool HasVideo => !string.IsNullOrWhiteSpace(VideoFileUrl);
 
     private string UploadHint =>
-        isUploading
-            ? "正在上传，请稍候…"
-            : OssUploadService.IsEnabled
-                ? "选择视频后将自动上传到阿里云 OSS，签名 URL 会填入上方（有效期见 appsettings Oss.SignedUrlExpireSeconds）。"
-                : "选择视频后将自动上传到本站，地址会填入上方 URL。";
+        OssUploadService.IsEnabled
+            ? "选择视频后将自动上传到阿里云 OSS，签名 URL 会填入上方（有效期见 appsettings Oss.SignedUrlExpireSeconds）。"
+            : "选择视频后将自动上传到本站，地址会填入上方 URL。";
 
     private async Task ClearVideoAsync()
     {
@@ -102,16 +122,33 @@
         }
 
         isUploading = true;
+        uploadPercent = 0;
+        uploadStatus = "正在准备上传…";
+        IProgress<UploadProgressReport> uploadProgress = new System.Progress<UploadProgressReport>(report =>
+        {
+            uploadPercent = report.Percent;
+            uploadStatus = report.Message;
+            _ = InvokeAsync(StateHasChanged);
+        });
+
         try
         {
             string url;
             if (OssUploadService.IsEnabled)
             {
-                url = await OssUploadService.UploadBrowserFileAsync(files[0]);
+                url = await OssUploadService.UploadBrowserFileAsync(files[0], uploadProgress);
             }
             else
             {
-                var uploaded = await FileService.UploadFileAsync(files[0], UploadDirectory, isRename: true);
+                var fileWithProgress = BrowserFileUploadHelper.WithProgress(
+                    files[0],
+                    uploadProgress,
+                    percentStart: 0,
+                    percentEnd: 100,
+                    message: "正在上传视频…");
+                var uploaded = await FileService.UploadFileAsync(fileWithProgress, UploadDirectory, isRename: true);
+                uploadPercent = 100;
+                uploadStatus = "上传完成";
                 url = uploaded.LinkUrl;
             }
 
@@ -132,6 +169,8 @@
             }
 
             isUploading = false;
+            uploadPercent = 0;
+            uploadStatus = null;
         }
     }
 }
