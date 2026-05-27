@@ -50,7 +50,9 @@
 
     <TabsContent Value="script" Class="mt-4 space-y-4">
         <VideoFileUrlField VideoFileUrl="@Item.VideoFileUrl"
-                           VideoFileUrlChanged="OnVideoFileUrlChangedAsync" />
+                           VideoFileLocalUrl="@Item.VideoFileLocalUrl"
+                           VideoFileUrlChanged="OnVideoFileUrlChangedAsync"
+                           VideoFileLocalUrlChanged="OnVideoFileLocalUrlChangedAsync" />
         <div class="space-y-2">
             <Label For="project-wav-url">WAV 音频 URL</Label>
             <Input id="project-wav-url" Class="w-full" MaxLength="500" ReadOnly="true"
@@ -412,6 +414,12 @@
             Item.WavUrl = string.Empty;
         }
 
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnVideoFileLocalUrlChangedAsync(string localUrl)
+    {
+        Item.VideoFileLocalUrl = localUrl;
         await InvokeAsync(StateHasChanged);
     }
 

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Options;
 using TalkTrim.Services.DashScope;
 
@@ -20,6 +21,7 @@ public sealed class VideoTranscriptionService
     private readonly SubtitleTranslationService _translationService;
     private readonly OssUploadService _ossUploadService;
     private readonly VideoAsrAudioPrepService _audioPrepService;
+    private readonly IWebHostEnvironment _webHostEnvironment;
     private readonly DashScopeOptions _dashScopeOptions;
     private readonly ILogger<VideoTranscriptionService> _logger;
 
@@ -28,6 +30,7 @@ public sealed class VideoTranscriptionService
         SubtitleTranslationService translationService,
         OssUploadService ossUploadService,
         VideoAsrAudioPrepService audioPrepService,
+        IWebHostEnvironment webHostEnvironment,
         IOptions<DashScopeOptions> dashScopeOptions,
         ILogger<VideoTranscriptionService> logger)
     {
@@ -35,15 +38,20 @@ public sealed class VideoTranscriptionService
         _translationService = translationService;
         _ossUploadService = ossUploadService;
         _audioPrepService = audioPrepService;
+        _webHostEnvironment = webHostEnvironment;
         _dashScopeOptions = dashScopeOptions.Value;
         _logger = logger;
     }
 
     /// <param name="existingWavUrl">若已填写 WAV 音频 URL，则跳过从视频提取音频，直接用于识别。</param>
     /// <param name="videoFileUrl">视频素材 URL；无已有 WAV 时用于提取音频。</param>
+    /// <param name="videoFileLocalUrl">本站本地视频路径；有则优先用于 ffmpeg 提取 WAV，避免从 OSS 下载。</param>
     /// <param name="siteBaseUri">站点根地址，用于解析相对媒体路径。</param>
+    /// <param name="progress">任务进度回调。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
     public async Task<VideoTranscriptionResult> TranscribeAsync(
         string videoFileUrl,
+        string? videoFileLocalUrl,
         string? existingWavUrl,
         string siteBaseUri,
         IProgress<ProjectJobProgressReport>? progress = null,
@@ -70,7 +78,10 @@ public sealed class VideoTranscriptionService
                 throw new InvalidOperationException("请先填写或上传视频素材 URL。");
             }
 
-            var publicUrl = ResolvePublicMediaUrl(videoFileUrl, siteBaseUri);
+            var extractInput = ResolveVideoInputForAudioExtract(
+                videoFileUrl,
+                videoFileLocalUrl,
+                siteBaseUri);
             progress?.Report(new ProjectJobProgressReport("正在从视频提取音频（16kHz WAV）…", 10));
 
             var extractProgress = progress is null
@@ -83,7 +94,7 @@ public sealed class VideoTranscriptionService
                 });
 
             wavUrl = await _audioPrepService.PrepareAsrAudioUrlAsync(
-                publicUrl,
+                extractInput,
                 extractProgress,
                 cancellationToken);
         }
@@ -129,6 +140,24 @@ public sealed class VideoTranscriptionService
             EnglishSubtitles = SubtitleSrtFormatter.ToSrt(asrCues, chineseLines: false),
             ChineseSubtitles = SubtitleSrtFormatter.ToSrt(withChinese, chineseLines: true),
         };
+    }
+
+    private string ResolveVideoInputForAudioExtract(
+        string videoFileUrl,
+        string? videoFileLocalUrl,
+        string siteBaseUri)
+    {
+        if (!string.IsNullOrWhiteSpace(videoFileLocalUrl)
+            && MediaUrlHelper.TryResolveWebRootPhysicalPath(
+                videoFileLocalUrl,
+                _webHostEnvironment.WebRootPath,
+                out var localPhysical))
+        {
+            _logger.LogInformation("口播稿识别使用本地视频文件：{Path}", localPhysical);
+            return localPhysical;
+        }
+
+        return ResolvePublicMediaUrl(videoFileUrl, siteBaseUri);
     }
 
     private string ResolvePublicMediaUrl(string videoFileUrl, string siteBaseUri)

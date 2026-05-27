@@ -27,4 +27,33 @@ public static class MediaUrlHelper
         var baseUri = siteBaseUri.TrimEnd('/') + "/";
         return new Uri(new Uri(baseUri), url.TrimStart('/')).ToString();
     }
+
+    /// <summary>
+    /// 将本站相对媒体路径（如 /uploads/video/a.mp4）解析为 wwwroot 下的物理路径。
+    /// </summary>
+    public static bool TryResolveWebRootPhysicalPath(string? url, string webRootPath, out string physicalPath)
+    {
+        physicalPath = string.Empty;
+        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(webRootPath))
+        {
+            return false;
+        }
+
+        var trimmed = url.Trim();
+        if (trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (Path.IsPathRooted(trimmed) && File.Exists(trimmed))
+        {
+            physicalPath = trimmed;
+            return true;
+        }
+
+        var relative = trimmed.TrimStart('/');
+        physicalPath = Path.Combine(webRootPath, relative);
+        return File.Exists(physicalPath);
+    }
 }

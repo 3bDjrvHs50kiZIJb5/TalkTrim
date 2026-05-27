@@ -50,7 +50,7 @@ public sealed class VideoEncodeService
 
         ApplyPendingNumericFields(project);
 
-        var inputPath = ResolveInputPath(project.VideoFileUrl, siteBaseUri);
+        var inputPath = ResolveProjectVideoInputPath(project, siteBaseUri);
         _logger.LogInformation(
             "开始视频压制：ProjectId={ProjectId}, ProjectName={ProjectName}, Speed={Speed}, BreathTrimSec={BreathTrimSec}, Input={InputPath}",
             project.Id,
@@ -651,6 +651,21 @@ public sealed class VideoEncodeService
         var physicalPath = Path.Combine(physicalDirectory, fileName);
         File.Copy(localPath, physicalPath, overwrite: true);
         return "/" + Path.Combine(relativeDirectory, fileName).Replace('\\', '/');
+    }
+
+    private string ResolveProjectVideoInputPath(Project project, string siteBaseUri)
+    {
+        if (!string.IsNullOrWhiteSpace(project.VideoFileLocalUrl)
+            && MediaUrlHelper.TryResolveWebRootPhysicalPath(
+                project.VideoFileLocalUrl,
+                _webHostEnvironment.WebRootPath,
+                out var localPhysical))
+        {
+            _logger.LogDebug("压制使用本地视频素材：{Path}", localPhysical);
+            return localPhysical;
+        }
+
+        return ResolveInputPath(project.VideoFileUrl, siteBaseUri);
     }
 
     private string ResolveInputPath(string videoFileUrl, string siteBaseUri)

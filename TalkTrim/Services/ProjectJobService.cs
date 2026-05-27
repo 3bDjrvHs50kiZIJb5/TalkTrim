@@ -282,6 +282,7 @@ public sealed class ProjectJobService
         target.OutroVideoUrl = source.OutroVideoUrl;
         target.Keywords = source.Keywords;
         target.VideoFileUrl = source.VideoFileUrl;
+        target.VideoFileLocalUrl = source.VideoFileLocalUrl;
         target.WavUrl = source.WavUrl;
         target.ScriptContent = source.ScriptContent;
         target.ChineseSubtitles = source.ChineseSubtitles;

@@ -43,10 +43,16 @@ public class Project : EntityModified
     public string Keywords { get; set; } = string.Empty;
 
     /// <summary>
-    /// 视频文件 URL
+    /// 视频文件 URL（OSS 签名地址或本站上传路径，供预览与 ASR 公网访问）
     /// </summary>
     [Column(StringLength = 500)]
     public string VideoFileUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 视频素材本站本地链接（如 /uploads/video/xxx.mp4），用于 ffmpeg 提取 WAV，避免从 OSS 再下载。
+    /// </summary>
+    [Column(StringLength = 500)]
+    public string VideoFileLocalUrl { get; set; } = string.Empty;
 
     /// <summary>
     /// 从视频提取的 16kHz WAV 音频 OSS 地址（供 ASR 等使用）

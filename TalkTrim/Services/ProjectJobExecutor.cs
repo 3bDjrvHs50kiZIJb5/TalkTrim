@@ -100,6 +100,7 @@ public sealed class ProjectJobExecutor
 
         var result = await _transcriptionService.TranscribeAsync(
             project.VideoFileUrl ?? string.Empty,
+            string.IsNullOrWhiteSpace(project.VideoFileLocalUrl) ? null : project.VideoFileLocalUrl,
             string.IsNullOrWhiteSpace(project.WavUrl) ? null : project.WavUrl,
             job.SiteBaseUri,
             progress,

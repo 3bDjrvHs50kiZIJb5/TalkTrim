@@ -1,5 +1,6 @@
 @namespace TalkTrim.Components.Video
 @using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Hosting
 @using TalkTrim.Services
 @using NeoAdmin.Blazor.Extensions
 @using NeoAdmin.Blazor.Services
@@ -23,6 +24,20 @@
                 <LucideIcon Name="x" Size="16" />
             </Button>
         </div>
+        @if (!string.IsNullOrWhiteSpace(VideoFileLocalUrl))
+        {
+            <div class="space-y-1 max-w-md">
+                <Label For="@LocalInputId" Class="text-xs text-muted-foreground">视频素材本地链接</Label>
+                <Input Id="@LocalInputId"
+                       Class="w-full text-xs"
+                       MaxLength="500"
+                       ReadOnly="true"
+                       Value="@VideoFileLocalUrl" />
+                <p class="text-xs text-muted-foreground">
+                    识别口播稿与压制时优先使用本地文件提取/读取，无需从 OSS 再下载。
+                </p>
+            </div>
+        }
     }
     else
     {
@@ -73,16 +88,28 @@
     public string InputId { get; set; } = "project-video";
 
     [Parameter]
+    public string LocalInputId { get; set; } = "project-video-local";
+
+    [Parameter]
     public string VideoFileUrl { get; set; } = string.Empty;
 
     [Parameter]
+    public string VideoFileLocalUrl { get; set; } = string.Empty;
+
+    [Parameter]
     public EventCallback<string> VideoFileUrlChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<string> VideoFileLocalUrlChanged { get; set; }
 
     [Inject]
     private FileService FileService { get; set; } = default!;
 
     [Inject]
     private OssUploadService OssUploadService { get; set; } = default!;
+
+    [Inject]
+    private IWebHostEnvironment WebHostEnvironment { get; set; } = default!;
 
     [Inject]
     private IToastService ToastService { get; set; } = default!;
@@ -100,12 +127,13 @@
 
     private string UploadHint =>
         OssUploadService.IsEnabled
-            ? "选择视频后将自动上传到阿里云 OSS，签名 URL 会填入上方（有效期见 appsettings Oss.SignedUrlExpireSeconds）。"
+            ? "选择视频后将先保存到本站，再上传到阿里云 OSS；OSS 地址填入上方，本地链接用于提取 WAV。"
             : "选择视频后将自动上传到本站，地址会填入上方 URL。";
 
     private async Task ClearVideoAsync()
     {
         await VideoFileUrlChanged.InvokeAsync(string.Empty);
+        await VideoFileLocalUrlChanged.InvokeAsync(string.Empty);
         selectedFiles = [];
         if (fileUpload is not null)
         {
@@ -134,9 +162,38 @@
         try
         {
             string url;
+            string localUrl = string.Empty;
             if (OssUploadService.IsEnabled)
             {
-                url = await OssUploadService.UploadBrowserFileAsync(files[0], uploadProgress);
+                var fileWithProgress = BrowserFileUploadHelper.WithProgress(
+                    files[0],
+                    uploadProgress,
+                    percentStart: 0,
+                    percentEnd: 42,
+                    message: "正在保存到本站…");
+                var uploaded = await FileService.UploadFileAsync(fileWithProgress, UploadDirectory, isRename: true);
+                localUrl = uploaded.LinkUrl;
+
+                if (!MediaUrlHelper.TryResolveWebRootPhysicalPath(
+                        localUrl,
+                        WebHostEnvironment.WebRootPath,
+                        out var physicalPath))
+                {
+                    throw new InvalidOperationException("本地视频保存成功，但无法解析文件路径。");
+                }
+
+                uploadStatus = "正在上传到 OSS…";
+                var extension = Path.GetExtension(physicalPath);
+                if (string.IsNullOrWhiteSpace(extension))
+                {
+                    extension = Path.GetExtension(files[0].Name);
+                }
+
+                url = await OssUploadService.UploadLocalFileWithProgressAsync(
+                    physicalPath,
+                    extension,
+                    uploadProgress,
+                    CancellationToken.None);
             }
             else
             {
@@ -150,11 +207,17 @@
                 uploadPercent = 100;
                 uploadStatus = "上传完成";
                 url = uploaded.LinkUrl;
+                localUrl = url;
             }
 
             await VideoFileUrlChanged.InvokeAsync(url);
+            await VideoFileLocalUrlChanged.InvokeAsync(localUrl);
             await InvokeAsync(StateHasChanged);
-            ToastService.Success("视频", OssUploadService.IsEnabled ? "已上传到阿里云 OSS" : "上传成功，已填入 URL");
+            ToastService.Success(
+                "视频",
+                OssUploadService.IsEnabled
+                    ? "已保存本地并上传到阿里云 OSS"
+                    : "上传成功，已填入 URL");
         }
         catch (Exception ex)
         {

@@ -116,9 +116,17 @@ public sealed class OssUploadService
     }
 
     /// <summary>上传本地文件到 OSS 并返回签名 URL（供 ASR 使用 16kHz WAV 等）。</summary>
-    public async Task<string> UploadLocalFileAndGetSignedUrlAsync(
+    public Task<string> UploadLocalFileAndGetSignedUrlAsync(
         string localFilePath,
         string extension,
+        CancellationToken cancellationToken = default)
+        => UploadLocalFileWithProgressAsync(localFilePath, extension, progress: null, cancellationToken);
+
+    /// <summary>上传磁盘上的文件到 OSS 并返回签名 URL（可带进度，供视频先落盘再传 OSS）。</summary>
+    public async Task<string> UploadLocalFileWithProgressAsync(
+        string localFilePath,
+        string extension,
+        IProgress<UploadProgressReport>? progress,
         CancellationToken cancellationToken = default)
     {
         if (!IsEnabled)
@@ -134,8 +142,10 @@ public sealed class OssUploadService
         string objectKey = BuildObjectKey(extension);
         var client = CreateClient();
         await Task.Run(
-            () => client.PutObject(_options.Bucket, objectKey, localFilePath),
+            () => PutLocalFileWithProgress(client, objectKey, localFilePath, progress),
             cancellationToken);
+
+        progress?.Report(new UploadProgressReport(100, "上传完成"));
 
         var expireUtc = DateTime.UtcNow.AddSeconds(Math.Max(60, _options.SignedUrlExpireSeconds));
         var signedUri = client.GeneratePresignedUri(_options.Bucket, objectKey, expireUtc);
