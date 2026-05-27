@@ -2,6 +2,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
+# dotnet publish 会触发 csproj 中的 npm install / build:css，构建阶段需 Node
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends nodejs npm && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY TalkTrim.csproj .
 RUN dotnet restore TalkTrim.csproj
 
