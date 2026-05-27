@@ -15,7 +15,7 @@
 <PageTitle>视频项目</PageTitle>
 
 <div class="flex flex-col flex-1 min-h-0">
-    <CrudTable @ref="table" TItem="VideoProject" Title="视频项目" PageSize="50" IsMultiSelect="false" IsSingleSelect="false"
+    <CrudTable @ref="table" TItem="VideoProject" Title="视频项目" PageSize="50" IsMultiSelect="true" IsSingleSelect="false"
         SearchPlaceholder="项目名称 / 编码 / 简介 / 关键词 / 备注.." InitQuery="InitQuery" OnQuery="HandleQuery"
         OnSaveAsync="HandleSaveAsync"
         DialogContentSize="CrudDialogContentSize.X7l">
