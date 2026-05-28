@@ -1,11 +1,11 @@
 # 路径均相对本文件所在目录，可在任意目录执行 docker-auto.sh
 services:
-  myadmin:
+  talktrim:
     build:
       context: .
       dockerfile: Dockerfile
-    image: myadmin:latest
-    container_name: myadmin
+    image: talktrim:latest
+    container_name: talktrim
     ports:
       - "${HOST_PORT:-5050}:80"
     environment:
@@ -18,3 +18,7 @@ services:
       - ./keys:/app/keys
       - ./neoadmin.db:/app/neoadmin.db
     restart: unless-stopped
+    # 限制容器资源，避免 ffmpeg 压制时占满宿主机内存
+    mem_limit: 4g
+    memswap_limit: 4g
+    cpus: "2"
