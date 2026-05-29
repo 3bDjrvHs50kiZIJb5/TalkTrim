@@ -193,7 +193,9 @@
 
     <TabsContent Value="media" Class="mt-4 space-y-4">
         <ThumbnailUrlField @bind-ThumbnailUrl="Item.ThumbnailUrl" />
-        <OutroVideoUrlField @bind-OutroVideoUrl="Item.OutroVideoUrl" />
+        <OutroVideoUrlField @bind-OutroVideoUrl="Item.OutroVideoUrl"
+                            ProjectId="Item.Id"
+                            UserId="Item.UserId" />
     </TabsContent>
 
     <TabsContent Value="encode" Class="mt-4 space-y-4">

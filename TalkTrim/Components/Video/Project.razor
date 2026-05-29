@@ -15,6 +15,12 @@
 <PageTitle>视频项目</PageTitle>
 
 <div class="flex flex-col flex-1 min-h-0">
+    @if (!_scopeLoaded)
+    {
+        <p class="p-4 text-sm text-muted-foreground">加载中…</p>
+    }
+    else
+    {
     <CrudTable @ref="table" TItem="VideoProject" Title="视频项目" PageSize="50" IsMultiSelect="true" IsSingleSelect="false"
         SearchPlaceholder="项目名称 / 编码 / 简介 / 关键词 / 备注.." InitQuery="InitQuery" OnQuery="HandleQuery"
         OnSaveAsync="HandleSaveAsync"
@@ -95,6 +101,7 @@
             <ProjectEditTabs Item="item" />
         </EditTemplate>
     </CrudTable>
+    }
 </div>
 
 <Dialog @bind-Open="_activeJobsDialogOpen">
@@ -196,6 +203,7 @@
     private readonly HashSet<long> _cancellingJobIds = [];
     private long? _currentUserId;
     private bool _isAdministrator;
+    private bool _scopeLoaded;
     private PeriodicTimer? _pollTimer;
     private CancellationTokenSource? _pollCts;
     private Task? _pollLoopTask;
@@ -205,6 +213,7 @@
     protected override async Task OnInitializedAsync()
     {
         await RefreshCurrentUserScopeAsync();
+        _scopeLoaded = true;
         await RefreshActiveJobCountAsync();
         StartPolling();
     }

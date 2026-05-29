@@ -1,11 +1,30 @@
 @namespace TalkTrim.Components.Video
 @using Microsoft.AspNetCore.Components.Forms
+@using TalkTrim.Entities.Video
+@using VideoProject = TalkTrim.Entities.Video.Project
 @using TalkTrim.Services
 @using NeoAdmin.Blazor.Extensions
 @using NeoAdmin.Blazor.Services
 
 <div class="space-y-2">
-    <Label For="@InputId">视频片尾 URL</Label>
+    <div class="flex items-center justify-between gap-2">
+        <Label For="@InputId">视频片尾 URL</Label>
+        <Button Type="ButtonType.Button"
+                Variant="ButtonVariant.Outline"
+                Size="ButtonSize.Small"
+                Disabled="@(!CanCopyFromPrevious || _isCopying)"
+                Title="@GetCopyFromPreviousTitle()"
+                OnClick="CopyFromPreviousAsync">
+            @if (_isCopying)
+            {
+                <span>获取中…</span>
+            }
+            else
+            {
+                <span>从上一条视频获取</span>
+            }
+        </Button>
+    </div>
     <Input Id="@InputId"
            Class="w-full"
            MaxLength="500"
@@ -53,10 +72,19 @@
     public string InputId { get; set; } = "project-outro";
 
     [Parameter]
+    public long ProjectId { get; set; }
+
+    [Parameter]
+    public long UserId { get; set; }
+
+    [Parameter]
     public string OutroVideoUrl { get; set; } = string.Empty;
 
     [Parameter]
     public EventCallback<string> OutroVideoUrlChanged { get; set; }
+
+    [Inject]
+    private IFreeSql FreeSql { get; set; } = default!;
 
     [Inject]
     private FileService FileService { get; set; } = default!;
@@ -73,8 +101,21 @@
     private FileUpload? fileUpload;
     private List<IBrowserFile> selectedFiles = [];
     private bool isUploading;
+    private bool _isCopying;
 
     private bool HasOutro => !string.IsNullOrWhiteSpace(OutroVideoUrl);
+
+    private bool CanCopyFromPrevious => UserId > 0;
+
+    private string? GetCopyFromPreviousTitle()
+    {
+        if (UserId <= 0)
+        {
+            return "请先保存项目后再获取";
+        }
+
+        return "复制上一条视频的片尾 URL（按 ID 倒序的上一条）";
+    }
 
     private string UploadHint =>
         isUploading
@@ -90,6 +131,57 @@
         if (fileUpload is not null)
         {
             await fileUpload.ClearFiles();
+        }
+    }
+
+    private async Task CopyFromPreviousAsync()
+    {
+        if (!CanCopyFromPrevious || _isCopying)
+        {
+            return;
+        }
+
+        _isCopying = true;
+        try
+        {
+            var query = FreeSql.Select<VideoProject>()
+                .Where(p => p.UserId == UserId)
+                .Where(p => !string.IsNullOrWhiteSpace(p.OutroVideoUrl));
+
+            if (ProjectId > 0)
+            {
+                query = query.Where(p => p.Id < ProjectId);
+            }
+
+            var previous = await query
+                .OrderByDescending(p => p.Id)
+                .FirstAsync(p => new { p.OutroVideoUrl, p.ProjectName });
+
+            if (previous is null || string.IsNullOrWhiteSpace(previous.OutroVideoUrl))
+            {
+                ToastService.Warning("无可用片尾", "未找到上一条已填写片尾 URL 的视频项目。");
+                return;
+            }
+
+            await OutroVideoUrlChanged.InvokeAsync(previous.OutroVideoUrl);
+            selectedFiles = [];
+            if (fileUpload is not null)
+            {
+                await fileUpload.ClearFiles();
+            }
+
+            var projectLabel = string.IsNullOrWhiteSpace(previous.ProjectName)
+                ? "上一条视频"
+                : $"「{previous.ProjectName}」";
+            ToastService.Success("视频片尾", $"已从{projectLabel}复制片尾 URL");
+        }
+        catch (Exception ex)
+        {
+            ToastService.Error("获取片尾失败", ex.Message);
+        }
+        finally
+        {
+            _isCopying = false;
         }
     }
 
